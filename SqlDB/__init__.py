@@ -1,148 +1,11 @@
 #Kage Park
-from sys import version_info
-import re
-import os
+import kmisc as km
 from kmisc.Import import *
 #SQLite3
 #import sqlite3
 #Postgresql
 #import psycopg2
 #import psycopg2.extras
-
-def Lower(src):
-    if isinstance(src,str): return src.lower()
-    return src
-
-def _u_bytes2str(val,**opts):
-    decode=opts.get('decode',None)
-    if not isinstance(decode,(str,list,tuple)): decode=['utf-8','latin1','windows-1252']
-    def bytes3str(val1):
-        if isinstance(val1,bytes):
-            if isinstance(decode,list):
-                for ii in decode:
-                    try:
-                        return val1.decode(ii)
-                    except:
-                        pass
-            elif isinstance(decode,str):
-                return val1.decode(decode)
-        else:
-            return val1
-
-    def bytes2str(val1):
-        if type(val1).__name__ == 'unicode':
-            if isinstance(decode,list):
-                for ii in decode:
-                    try:
-                        return val1.encode(ii)
-                    except:
-                        pass
-            elif isinstance(decode,str):
-                return val1.encode(decode)
-        else:
-            return val1
-
-    if PyVer(2):
-        return bytes2str(val)
-    else:
-        return bytes3str(val)
-
-def _u_bytes(val,encode=['utf-8','latin1','windows-1252']):
-    type_val=type(val)
-    if type_val is bytes:
-        return val
-    else:
-        if type_val.__name__ == 'unicode': # for python2
-            val=str(val)
-        type_encode=type(encode)
-        if type_encode is list:
-            for ii in encode:
-                try:
-                    return bytes(val,ii)
-                except:
-                    pass
-        elif type_encode is str:
-            return bytes(val,encode)
-
-
-def Split(src,sym,default=None):
-    if isinstance(src,str):
-        if isinstance(sym,bytes): sym=_u_bytes2str(sym)
-    elif isinstance(src,bytes):
-        if isinstance(sym,str): sym=_u_bytes(sym,default={'org'})
-    else:
-        return default
-    if len(sym) > 2 and '|' in sym:
-        try:
-            sym_a=sym.split('|')
-            for i in ['.','+','*']:
-                try:
-                    x=sym_a.index(i)
-                    sym_a[x]='\{}'.format(sym_a[x])
-                except:
-                    continue
-            return re.split('|'.join(sym_a),src) # splited by '|' or expression
-        except:
-            pass
-    return src.split(sym)
-
-
-def Int(i,default={'org'}):
-    if isinstance(i,int): return i
-    if isinstance(i,str):
-        try:
-            return int(i)
-        except:
-            pass
-    if default == {'org'}: return i
-    return default
-
-def CompVersion(src,compare_symbol,dest,compare_range='dest',version_symbol='.'):
-    if isinstance(src,dict): src=src.get('version')
-    if isinstance(dest,dict): dest=dest.get('version')
-    if isinstance(src,str):
-        src=Split(src,version_symbol)
-    elif isinstance(src,tuple):
-        src=list(src)
-    if isinstance(dest,str):
-        dest=Split(dest,version_symbol)
-    elif isinstance(dest,tuple):
-        dest=list(dest)
-    src=[ Int(i) for i in src]
-    dest=[ Int(i) for i in dest]
-    if compare_range == 'dest':
-        src=src[:len(dest)]
-    elif compare_range == 'src':
-         dest=dest[:len(src)]
-    elif isinstance(compare_range,(tuple,list)) and len(compare_range) == 2:
-        if isinstance(compare_range[0],int) and isinstance(compare_range[1],int):
-             src=src[compare_range[0]:compare_range[1]]
-             dest=dest[compare_range[0]:compare_range[1]]
-        elif not compare_range[0] and isinstance(compare_range[1],int):
-             src=src[:compare_range[1]]
-             dest=dest[:compare_range[1]]
-        elif isinstance(compare_range[0],int) and not compare_range[1]:
-             src=src[compare_range[0]:]
-             dest=dest[compare_range[0]:]
-    elif isinstance(compare_range,int):
-        if len(src) > compare_range and len(dest) > compare_range:
-             src=src[compare_range]
-             dest=dest[compare_range]
-        else:
-             return
-    return eval('{} {} {}'.format(src,compare_symbol,dest))
-
-
-def PyVer(main=None,miner=None,msym='=='):
-    if isinstance(main,int):
-        v=[main]
-        if isinstance(miner,int): v.append(miner)
-        return CompVersion(version_info,msym,v)
-    elif isinstance(main,str):
-        if miner: main=main+'{}'.format(miner)
-        return CompVersion(version_info,msym,main)
-    else:
-        return '{}.{}'.format(version_info[0],version_info[1])
 
 def SqlLike(field,find_src,mode='OR',sensitive=False):
     if not isinstance(find_src,(tuple,list)):
@@ -212,7 +75,7 @@ def SqlLikeFormat(field,find_src,sensitive=False,mode='AND'):
 
 def SqlMkData(values,decode=None):
     if decode:
-        return tuple([ _u_bytes2str(x,decode) if isinstance(x,str) else x for x in values])
+        return tuple([ km._u_bytes2str(x,decode) if isinstance(x,str) else x for x in values])
     else:
         return tuple(values)
 
@@ -222,11 +85,14 @@ def SqlConInfo(**info):
         conn=info.get('conn')
     else:
         if info['module'] == 'sqlite3':
+            Import('sqlite3')
             db_file=info.get('db_file')
             if db_file:
                 conn=sqlite3.connect(db_file)
                 conn.row_factory=sqlite3.Row
         elif info['module'] in ['psql','postgresql']:
+            Import('psycopg2')
+            Import('psycopg2.extras')
             info['module']='psql'
             timeout=info.get('timeout',1)
             port=info.get('port',5432)
@@ -267,13 +133,13 @@ def SqlExec(sql,data=[],row=list,mode='fetchall',encode=None,**db):
             if isinstance(data,tuple):
                 #convert data
                 if mode.lower() in ['put','save','commit','update']:
-                    data=tuple([_u_bytes2str(x) if isinstance(x,(str,bytes)) else x for x in data])
+                    data=tuple([km._u_bytes2str(x) if isinstance(x,(str,bytes)) else x for x in data])
                 con_info['cur'].execute(sql,data)
             else:
                 for row in data:
                     #convert data
                     if mode.lower() in ['put','save','commit','update']:
-                        row=tuple([_u_bytes2str(x) if isinstance(x,str) else x for x in row])
+                        row=tuple([km._u_bytes2str(x) if isinstance(x,str) else x for x in row])
                     con_info['cur'].execute(sql,row)
         else:
             con_info['cur'].execute(sql)
@@ -574,7 +440,7 @@ def SqlDel(sql=None,tablename=None,find=[],dbg=False,**db):
 def SqlWhere(sql,values,sub,field=None,mode=None):
     def dict_sql(sql,field,mods,symbol=False,mode=None):
         mod=next(iter(mods))
-        modl=Lower(mod)
+        modl=km.Lower(mod)
         if modl in ['and','or']:
             sql,m=SqlWhere(sql,values,mods,field=field)
         else:
