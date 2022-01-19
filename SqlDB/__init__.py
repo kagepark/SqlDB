@@ -177,6 +177,22 @@ def SqlAutoIdx(table_name,index='id'):
         return True,cur[0][0]+1
     return True,1
 
+def SqlTableInfo(with_field=False,**db):
+    if db.get('module') in ['psql','postgresql']:
+        cur,msg=SqlExec('''select table_name from information_schema.tables where table_schema='public' and table_type='BASE TABLE';''',row=list,**db)
+    else:
+        cur,msg=SqlExec('''select name from sqlite_master where type='table';''',row=list,**db)
+    if cur:
+        if with_field:
+            rt={}
+            for tt in cur:
+                if tt:
+                    rt[tt[0]]=SqlFieldInfo(tt[0],field_mode='simple',**db)
+            return rt
+        else:
+            return [tt[0] for tt in cur if tt]
+    return msg
+
 def SqlFieldInfo(table_name,field_mode='name',out=dict,**db):
     rt={}
     if not isinstance(table_name,str): return rt
