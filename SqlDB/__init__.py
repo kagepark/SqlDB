@@ -84,13 +84,14 @@ def SqlConInfo(**info):
     if info.get('conn'):
         conn=info.get('conn')
     else:
-        if info['module'] == 'sqlite3':
+        module=info.get('module')
+        if module == 'sqlite3':
             Import('sqlite3')
             db_file=info.get('db_file')
             if db_file:
                 conn=sqlite3.connect(db_file)
                 conn.row_factory=sqlite3.Row
-        elif info['module'] in ['psql','postgresql']:
+        elif module in ['psql','postgresql']:
             Import('psycopg2')
             Import('psycopg2.extras')
             info['module']='psql'
@@ -107,12 +108,12 @@ def SqlConInfo(**info):
                     break
                 except psycopg2.OperationalError as e:
                     print('Unable to connect! : {0}'.format(e))
-    if info['module'] == 'psql':
+    if module == 'psql':
         if info.get('row',dict) is dict:
             cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         else:
             cur = conn.cursor()
-    else:
+    elif module == 'sqlite3':
         if info.get('cur'):
             cur=info.get('cur')
         else:
@@ -123,12 +124,12 @@ def SqlConInfo(**info):
 def SqlExec(sql,data=[],row=list,mode='fetchall',encode=None,**db):
     put_idx=None
     if sql is False: return False,data
-    if db['module'] in ['psql','postgresql']:
+    if db.get('module') in ['psql','postgresql']:
         con_info=SqlConInfo(row=row,**db)
     else:
         con_info=SqlConInfo(**db)
 
-    try:
+    def __sql_exe__(sql,data,con_info):
         if data and isinstance(data,(tuple,list)):
             if isinstance(data,tuple):
                 #convert data
@@ -143,10 +144,38 @@ def SqlExec(sql,data=[],row=list,mode='fetchall',encode=None,**db):
                     con_info['cur'].execute(sql,row)
         else:
             con_info['cur'].execute(sql)
-    except (sqlite3.Error,) as e:
-        return False,e
-    except (Exception, psycopg2.Error) as e:
-        return False,e
+
+    if db.get('module') in ['psql','postgresql']:
+        try:
+            __sql_exe__(sql,data,con_info)
+        except (Exception, psycopg2.Error) as e:
+            return False,e
+    else:
+        try:
+            __sql_exe__(sql,data,con_info)
+        except (sqlite3.Error,) as e:
+            return False,e
+
+
+#    try:
+#        if data and isinstance(data,(tuple,list)):
+#            if isinstance(data,tuple):
+#                #convert data
+#                if mode.lower() in ['put','save','commit','update']:
+#                    data=tuple([km._u_bytes2str(x) if isinstance(x,(str,bytes)) else x for x in data])
+#                con_info['cur'].execute(sql,data)
+#            else:
+#                for row in data:
+#                    #convert data
+#                    if mode.lower() in ['put','save','commit','update']:
+#                        row=tuple([km._u_bytes2str(x) if isinstance(x,str) else x for x in row])
+#                    con_info['cur'].execute(sql,row)
+#        else:
+#            con_info['cur'].execute(sql)
+#    except (Exception, sqlite3.Error,) as e:
+#        return False,e
+#    except (Exception, psycopg2.Error) as e:
+#        return False,e
 
     if con_info['module'] == 'sqlite3':
         if row is dict:
@@ -169,8 +198,8 @@ def SqlExec(sql,data=[],row=list,mode='fetchall',encode=None,**db):
     con_info['conn'].close()
     return rt,None
 
-def SqlAutoIdx(table_name,index='id'):
-    cur,msg=SqlExec('''select max({}) from {};'''.format(index,table_name),row=list,**db_info)
+def SqlAutoIdx(table_name,index='id',**db):
+    cur,msg=SqlExec('''select max({}) from {};'''.format(index,table_name),row=list,**db)
     if cur is False:
         return False,msg
     if isinstance(cur,list) and cur:
@@ -198,7 +227,7 @@ def SqlFieldInfo(table_name,field_mode='name',out=dict,**db):
     if not isinstance(table_name,str): return rt
     if db.get('module') in ['psql','postgresql']:
         #data_type similar but simple word is udt_name
-        cur,msg=SqlExec('''SELECT ordinal_position,column_name,udt_name,is_nullable,column_default,character_maximum_length FROM information_schema.columns WHERE table_catalog='{}' and table_name = '{}';'''.format(db_info.get('db'),table_name),row=list,**db_info)
+        cur,msg=SqlExec('''SELECT ordinal_position,column_name,udt_name,is_nullable,column_default,character_maximum_length FROM information_schema.columns WHERE table_catalog='{}' and table_name = '{}';'''.format(db.get('db'),table_name),row=list,**db)
         if 'primary' in [out,field_mode]:
             return cur[0][1]
         if field_mode == 'simple': return [ item[1] for item in cur ]
@@ -402,9 +431,15 @@ def SqlGet(sql=None,tablename=None,find=[],out_fields=[],order=[],group=[],row=l
 
     values=[]
     if isinstance(sql,str):
-        if '?' in sql and isinstance(find,(list,tuple)) and len([ i for i in sql if i == '?']) == len(find):
-            sqlexec,msg=SqlExec(sql,tuple(find),row=row,mode=mode,**db)
-            return sqlexec
+        #if '?' in sql and isinstance(find,(list,tuple)) and len([ i for i in sql if i == '?']) == len(find):
+        if find and isinstance(find,(list,tuple)):
+            if '?' in sql and len([ i for i in sql if i == '?']) == len(find):
+                sqlexec,msg=SqlExec(sql,tuple(find),row=row,mode=mode,**db)
+        else:
+            sqlexec,msg=SqlExec(sql,row=row,mode=mode,**db)
+        if isinstance(sqlexec,bool):
+            return sqlexec,msg
+        return sqlexec,msg
     elif tablename:
         if out_fields:
             out_field=','.join(out_fields)
