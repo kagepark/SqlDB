@@ -1,11 +1,20 @@
 #Kage Park
 import kmisc as km
 from kmisc.Import import *
+import sys
+import traceback
 #SQLite3
 #import sqlite3
 #Postgresql
 #import psycopg2
 #import psycopg2.extras
+try:
+    # yum install sqlcipher
+    # pip3 install pysqlcipher3
+    from pysqlcipher3 import dbapi2 as sqlcipher
+    enc=True
+except:
+    enc=False
 
 def SqlLike(field,find_src,mode='OR',sensitive=False):
     if not isinstance(find_src,(tuple,list)):
@@ -89,8 +98,17 @@ def SqlConInfo(**info):
             Import('sqlite3')
             db_file=info.get('db_file')
             if db_file:
-                conn=sqlite3.connect(db_file)
-                conn.row_factory=sqlite3.Row
+                #Encripted DB
+                if info.get('enc_key'):
+                    if enc:
+                        conn=sqlcipher.connect(db_file)
+                        conn.execute('pragma key="{}"'.format(info.get('enc_key')))
+                        conn.row_factory=sqlcipher.Row
+                    else:
+                        print('Please install sqlcipher(yum install sqlcipher) and pysqlcipher3(pip3 install pysqlcipher3)')
+                else:
+                    conn=sqlite3.connect(db_file)
+                    conn.row_factory=sqlite3.Row
         elif module in ['psql','postgresql']:
             Import('psycopg2')
             Import('psycopg2.extras')
@@ -143,7 +161,12 @@ def SqlExec(sql,data=[],row=list,mode='fetchall',encode=None,**db):
                         row=tuple([km._u_bytes2str(x) if isinstance(x,str) else x for x in row])
                     con_info['cur'].execute(sql,row)
         else:
-            con_info['cur'].execute(sql)
+            try:
+                con_info['cur'].execute(sql)
+            except:
+                e=sys.exc_info()[0]
+                er=traceback.format_exc()
+                return False,'{}\n{}'.format(e,er)
 
     if db.get('module') in ['psql','postgresql']:
         try:
@@ -152,7 +175,9 @@ def SqlExec(sql,data=[],row=list,mode='fetchall',encode=None,**db):
             return False,e
     else:
         try:
-            __sql_exe__(sql,data,con_info)
+            nn=__sql_exe__(sql,data,con_info)
+            if isinstance(nn,tuple) and nn[0] is False:
+                return nn
         except (sqlite3.Error,) as e:
             return False,e
 
@@ -228,6 +253,7 @@ def SqlFieldInfo(table_name,field_mode='name',out=dict,**db):
     if db.get('module') in ['psql','postgresql']:
         #data_type similar but simple word is udt_name
         cur,msg=SqlExec('''SELECT ordinal_position,column_name,udt_name,is_nullable,column_default,character_maximum_length FROM information_schema.columns WHERE table_catalog='{}' and table_name = '{}';'''.format(db.get('db'),table_name),row=list,**db)
+        if isinstance(cur,bool): return cur,msg
         if 'primary' in [out,field_mode]:
             return cur[0][1]
         if field_mode == 'simple': return [ item[1] for item in cur ]
@@ -246,6 +272,7 @@ def SqlFieldInfo(table_name,field_mode='name',out=dict,**db):
         cur,msg=SqlExec('''pragma table_info('{}')'''.format(table_name),row=list,**db)
         #cid:name:type:notnull:dflt_value:pk
         #Int(Column ID):String(Column name):String(Column Type):bool(Has a not Null constraint):object(default Value):bool(Is part of the Primary Key)
+        if isinstance(cur,bool): return cur,msg
         if 'primary' in [out,field_mode]:
             for ii in cur:
                 if ii[5] == 1: return ii[1]
@@ -416,6 +443,7 @@ def SqlCheckFields(table_name,row_dict={},row_field=[],field_info=None,**db):
 
 def SqlFilterFields(table_name,check_field_names=[],**db):
     field_info=SqlFieldInfo(table_name,field_mode='simple',**db)
+    if isinstance(field_info,tuple): return field_info
     return [ ii for ii in check_field_names if ii in field_info ]
 
 def SqlGet(sql=None,tablename=None,find=[],out_fields=[],order=[],group=[],row=list,dbg=False,filterout=True,mode='all',**db):
@@ -427,7 +455,9 @@ def SqlGet(sql=None,tablename=None,find=[],out_fields=[],order=[],group=[],row=l
     '''
     if 'mode' in db: db.pop('mode')
     # Filter out for wrong field name
-    if filterout: out_fields=SqlFilterFields(tablename,out_fields,**db)
+    if filterout:
+         out_fields=SqlFilterFields(tablename,out_fields,**db)
+         if isinstance(out_fields,tuple): return out_fields
 
     values=[]
     if isinstance(sql,str):
@@ -437,8 +467,7 @@ def SqlGet(sql=None,tablename=None,find=[],out_fields=[],order=[],group=[],row=l
                 sqlexec,msg=SqlExec(sql,tuple(find),row=row,mode=mode,**db)
         else:
             sqlexec,msg=SqlExec(sql,row=row,mode=mode,**db)
-        if isinstance(sqlexec,bool):
-            return sqlexec,msg
+        if isinstance(sqlexec,bool): return sqlexec,msg
         return sqlexec,msg
     elif tablename:
         if out_fields:
