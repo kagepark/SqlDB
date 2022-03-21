@@ -1,6 +1,6 @@
 #Kage Park
 import kmisc as km
-from kmisc.Import import *
+from kmport import *
 import sys
 import traceback
 #SQLite3
