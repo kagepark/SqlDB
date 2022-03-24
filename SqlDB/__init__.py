@@ -37,7 +37,7 @@ def SqlLike(field,find_src,mode='OR',sensitive=False):
         return find[0]
 
 
-def SqlLikeFormat(field,find_src,sensitive=False,mode='AND'):
+def SqlLikeFormat(field,find_src,sensitive=False,mode='AND',NOT=False):
     #[ A , B] : A and B
     # A = (a,b,c) : a or b or c
     if not isinstance(find_src,list):
@@ -46,7 +46,7 @@ def SqlLikeFormat(field,find_src,sensitive=False,mode='AND'):
         find=find_src[:]
     for i in range(0,len(find)):
         if isinstance(find[i],tuple):
-            find[i]=SqlLikeFormat(field,list(find[i]),mode='OR',sensitive=sensitive)
+            find[i]=SqlLikeFormat(field,list(find[i]),mode='OR',sensitive=sensitive,NOT=NOT)
         else:
             find[i]=find[i].replace('*','%')
             if find[i][0] == '^':
@@ -76,7 +76,10 @@ def SqlLikeFormat(field,find_src,sensitive=False,mode='AND'):
                     else:
                         find[i]= """ instr({0},' {1} ') > 0""".format(field,find[i])
                 else:
-                    find[i]=""" {0} LIKE '{1}'""".format(field,find[i])
+                    if NOT:
+                        find[i]=""" {0} NOT LIKE '{1}'""".format(field,find[i])
+                    else:
+                        find[i]=""" {0} LIKE '{1}'""".format(field,find[i])
     if len(find) > 1:
         return '('+' {} '.format(mode).join(find)+')'
     else:
@@ -527,6 +530,9 @@ def SqlWhere(sql,values,sub,field=None,mode=None):
             if symbol: sql=sql+' {}'.format(mode)
             if modl == 'like':
                 sql=sql+' '+SqlLikeFormat(field,mods[mod],sensitive=False)
+                return sql,None
+            elif modl == 'notlike':
+                sql=sql+' '+SqlLikeFormat(field,mods[mod],sensitive=False,NOT=True)
                 return sql,None
             elif modl in ['sensitive','sens']:
                 sql=sql+' '+SqlLikeFormat(field,mods[mod],sensitive=True)
