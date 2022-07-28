@@ -3,6 +3,7 @@ import kmisc as km
 from kmport import *
 import sys
 import traceback
+import time
 #SQLite3
 #import sqlite3
 #Postgresql
@@ -214,7 +215,22 @@ def SqlExec(sql,data=[],row=list,mode='fetchall',encode=None,**db):
     if mode.lower() in ['put','save','commit','update']:
         con_info['cur'].execute('select last_insert_rowid();')
         idx=con_info['cur'].fetchone()
-        con_info['conn'].commit()
+        try:
+            con_info['conn'].commit()
+        except sqlite3.OperationalError as e:
+            ok=0
+            for i in range(0,10):
+                #print('>> retry({}/5) DB commit after 1 second for {}'.format(i,e))
+                time.sleep(1)
+                try:
+                    con_info['conn'].commit()
+                    ok=1
+                    break
+                except sqlite3.OperationalError as e:
+                    pass
+            if ok == 0:
+                con_info['conn'].close()
+                return False,e
         if idx:
             rt=idx[0]
         else:
