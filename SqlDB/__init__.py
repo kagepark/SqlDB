@@ -9,6 +9,7 @@ import time
 #Postgresql
 #import psycopg2
 #import psycopg2.extras
+
 try:
     # yum install sqlcipher
     # pip3 install pysqlcipher3
