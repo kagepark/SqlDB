@@ -585,7 +585,7 @@ def SqlWhere(sql,values,sub,field=None,mode=None):
             field=next(iter(sub))
             if not sub[field]:
                 sql=False
-                values.append('No search data(%s) for "%s" field <= ex: {<field>:{<operator>:<find data>}}'%(sub[field],field))
+                values.append(':: ERR :: No search data(%s) for "%s" field <= ex: {<field>:{<operator>:<find data>}}'%(sub[field],field))
             else:
                 if isinstance(sub[field],dict):
                     #AND/OR : {<field>:{'or/and':({<oper>:<find data>},...)}}
@@ -602,7 +602,7 @@ def SqlWhere(sql,values,sub,field=None,mode=None):
                     if m is not None: values.append(m)
                 else: # Wrong format
                     sql=False
-                    values.append('Wrong Format(%s) <= ex: {<field>:{<operator>:<find data>}}'%(sub))
+                    values.append(':: ERR :: Wrong Format(%s) type(%s) <= ex:dict type: {<field>:{<operator>:<find data>}}'%(sub,type(sub[field])))
     elif isinstance(sub,(list,tuple)):
         symbol=False
         sub_symbol=False
@@ -611,9 +611,11 @@ def SqlWhere(sql,values,sub,field=None,mode=None):
             if field is None:
                 if sub_symbol : sql=sql+' {}'.format(mode)
                 sql,m=SqlWhere(sql,values,mods,field=field)
+                if isinstance(sql,bool): return sql,m
                 sub_symbol=True
             else:
                 sql,m=dict_sql(sql,field,mods,symbol,mode)
+                if isinstance(sql,bool): return sql,m
                 if m is not None: values.append(m)
                 symbol=True
         sql=sql+' )'
