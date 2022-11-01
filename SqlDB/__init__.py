@@ -543,6 +543,7 @@ def SqlWhere(sql,values,sub,field=None,mode=None):
         modl=km.Lower(mod)
         if modl in ['and','or']:
             sql,m=SqlWhere(sql,values,mods,field=field)
+            return sql,m
         else:
             if symbol: sql=sql+' {}'.format(mode)
             if modl == 'like':
@@ -611,7 +612,7 @@ def SqlWhere(sql,values,sub,field=None,mode=None):
             if field is None:
                 if sub_symbol : sql=sql+' {}'.format(mode)
                 sql,m=SqlWhere(sql,values,mods,field=field)
-                if isinstance(sql,bool): return sql,m
+                if isinstance(sql,(bool,type(None))): return sql,m
                 sub_symbol=True
             else:
                 sql,m=dict_sql(sql,field,mods,symbol,mode)
