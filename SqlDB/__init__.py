@@ -615,7 +615,7 @@ def SqlWhere(sql,values,sub,field=None,mode=None):
                 sub_symbol=True
             else:
                 sql,m=dict_sql(sql,field,mods,symbol,mode)
-                if isinstance(sql,bool): return sql,m
+                if isinstance(sql,(bool,type(None))): return sql,m
                 if m is not None: values.append(m)
                 symbol=True
         sql=sql+' )'
