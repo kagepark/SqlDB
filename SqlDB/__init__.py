@@ -1,9 +1,8 @@
 #Kage Park
-import kmisc as km
-from kmport import *
 import sys
-import traceback
 import time
+import traceback
+from kmport import *
 #SQLite3
 #import sqlite3
 #Postgresql
@@ -89,7 +88,7 @@ def SqlLikeFormat(field,find_src,sensitive=False,mode='AND',NOT=False):
 
 def SqlMkData(values,decode=None):
     if decode:
-        return tuple([ km._u_bytes2str(x,decode) if isinstance(x,str) else x for x in values])
+        return tuple([ Str(x,decode) if isinstance(x,str) else x for x in values])
     else:
         return tuple(values)
 
@@ -157,13 +156,13 @@ def SqlExec(sql,data=[],row=list,mode='fetchall',encode=None,**db):
             if isinstance(data,tuple):
                 #convert data
                 if mode.lower() in ['put','save','commit','update']:
-                    data=tuple([km._u_bytes2str(x) if isinstance(x,(str,bytes)) else x for x in data])
+                    data=tuple([Str(x) if isinstance(x,(str,bytes)) else x for x in data])
                 con_info['cur'].execute(sql,data)
             else:
                 for row in data:
                     #convert data
                     if mode.lower() in ['put','save','commit','update']:
-                        row=tuple([km._u_bytes2str(x) if isinstance(x,str) else x for x in row])
+                        row=tuple([Str(x) if isinstance(x,str) else x for x in row])
                     con_info['cur'].execute(sql,row)
         else:
             try:
@@ -192,13 +191,13 @@ def SqlExec(sql,data=[],row=list,mode='fetchall',encode=None,**db):
 #            if isinstance(data,tuple):
 #                #convert data
 #                if mode.lower() in ['put','save','commit','update']:
-#                    data=tuple([km._u_bytes2str(x) if isinstance(x,(str,bytes)) else x for x in data])
+#                    data=tuple([Str(x) if isinstance(x,(str,bytes)) else x for x in data])
 #                con_info['cur'].execute(sql,data)
 #            else:
 #                for row in data:
 #                    #convert data
 #                    if mode.lower() in ['put','save','commit','update']:
-#                        row=tuple([km._u_bytes2str(x) if isinstance(x,str) else x for x in row])
+#                        row=tuple([Str(x) if isinstance(x,str) else x for x in row])
 #                    con_info['cur'].execute(sql,row)
 #        else:
 #            con_info['cur'].execute(sql)
@@ -540,10 +539,9 @@ def SqlDel(sql=None,tablename=None,find=[],dbg=False,**db):
 def SqlWhere(sql,values,sub,field=None,mode=None):
     def dict_sql(sql,field,mods,symbol=False,mode=None):
         mod=next(iter(mods))
-        modl=km.Lower(mod)
+        modl=Str(mod).lower() if TypeName(mod) in ('str','bytes') else mod
         if modl in ['and','or']:
             sql,m=SqlWhere(sql,values,mods,field=field)
-            return sql,m
         else:
             if symbol: sql=sql+' {}'.format(mode)
             if modl == 'like':
@@ -586,7 +584,7 @@ def SqlWhere(sql,values,sub,field=None,mode=None):
             field=next(iter(sub))
             if not sub[field]:
                 sql=False
-                values.append(':: ERR :: No search data(%s) for "%s" field <= ex: {<field>:{<operator>:<find data>}}'%(sub[field],field))
+                values.append('No search data(%s) for "%s" field <= ex: {<field>:{<operator>:<find data>}}'%(sub[field],field))
             else:
                 if isinstance(sub[field],dict):
                     #AND/OR : {<field>:{'or/and':({<oper>:<find data>},...)}}
@@ -603,7 +601,7 @@ def SqlWhere(sql,values,sub,field=None,mode=None):
                     if m is not None: values.append(m)
                 else: # Wrong format
                     sql=False
-                    values.append(':: ERR :: Wrong Format(%s) type(%s) <= ex:dict type: {<field>:{<operator>:<find data>}}'%(sub,type(sub[field])))
+                    values.append('Wrong Format(%s) <= ex: {<field>:{<operator>:<find data>}}'%(sub))
     elif isinstance(sub,(list,tuple)):
         symbol=False
         sub_symbol=False
@@ -612,11 +610,9 @@ def SqlWhere(sql,values,sub,field=None,mode=None):
             if field is None:
                 if sub_symbol : sql=sql+' {}'.format(mode)
                 sql,m=SqlWhere(sql,values,mods,field=field)
-                if isinstance(sql,(bool,type(None))): return sql,m
                 sub_symbol=True
             else:
                 sql,m=dict_sql(sql,field,mods,symbol,mode)
-                if isinstance(sql,(bool,type(None))): return sql,m
                 if m is not None: values.append(m)
                 symbol=True
         sql=sql+' )'
