@@ -159,11 +159,11 @@ def SqlExec(sql,data=[],row=list,mode='fetchall',encode=None,**db):
                     data=tuple([Str(x) if isinstance(x,(str,bytes)) else x for x in data])
                 con_info['cur'].execute(sql,data)
             else:
-                for row in data:
+                for irow in data:
                     #convert data
                     if mode.lower() in ['put','save','commit','update']:
-                        row=tuple([Str(x) if isinstance(x,str) else x for x in row])
-                    con_info['cur'].execute(sql,row)
+                        irow=tuple([Str(x) if isinstance(x,str) else x for x in irow])
+                    con_info['cur'].execute(sql,irow)
         else:
             try:
                 con_info['cur'].execute(sql)
