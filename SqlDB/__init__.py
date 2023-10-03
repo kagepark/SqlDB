@@ -618,6 +618,135 @@ def SqlWhere(sql,values,sub,field=None,mode=None):
         sql=sql+' )'
     return sql,values
 
+def FTS_init(table_name,fields,key='id',version=3,**db):
+    istable=IsTable('{}_fts'.format(table_name),**db)
+    if not istable:
+        if isinstance(fields,str): fields=fields.split(',')
+        if key in fields: fields.remove(key)
+        if isinstance(fields,list): fields=','.join(fields)
+
+        #create
+        cur,msg=SqlExec('''create virtual table {0}_fts using fts{3}({2},{1},content='{0}');'''.format(table_name,fields,key,version),mode='commit',**db)
+        if cur is False:
+            return cur,msg
+        #initialize(copy data)
+        cur,msg=SqlExec('''insert into {0}_fts ({2},{1}) select {2},{1} from {0};'''.format(table_name,fields,key),mode='commit',**db)
+        #automation
+        new_fields=[]
+        for i in fields.split(','):
+            new_fields.append('new.{}'.format(i))
+        sql='''CREATE TRIGGER {0}_fts_insert AFTER INSERT ON {0}
+BEGIN
+INSERT INTO {0}_fts({3},{1}) values (new.{3},{2});
+END; '''.format(table_name,fields,','.join(new_fields),key)
+        if IsSame(version,3):
+            update_fields=[]
+            for i in fields.split(','):
+                if i == key: continue
+                update_fields.append('{0}=new.{0}'.format(i))
+            sql=sql+'''
+CREATE TRIGGER {0}_fts_delete AFTER DELETE ON {0}
+BEGIN
+DELETE FROM {0}_fts WHERE {1} = old.{1};
+END;
+CREATE TRIGGER {0}_fts_update AFTER UPDATE ON {0}
+BEGIN
+UPDATE {0}_fts SET {2} WHERE {1} = old.{1};
+END;
+'''.format(table_name,key,','.join(update_fields))
+        elif IsSame(version,5):
+            old_fields=[]
+            for i in fields.split(','):
+                old_fields.append('old.{}'.format(i))
+            sql=sql+'''
+CREATE TRIGGER {0}_fts_delete AFTER DELETE ON {0}
+BEGIN
+INSERT INTO {0}_fts({4},{1}) values ('delete',old.{4},{3});
+END;
+CREATE TRIGGER {0}_fts_update AFTER UPDATE ON {0}
+BEGIN
+INSERT INTO {0}_fts({4},{1}) values ('delete',old.{4},{3});
+INSERT INTO {0}_fts({4},{1}) values (new.{4},{2});
+END;
+'''.format(table_name,fields,','.join(new_fields),','.join(old_fields),key)
+        cur,msg=SqlExec(sql,mode='commit',multi=True,**db)
+        return cur,msg
+
+def FTS(table_name,search=None,out_fields=None,group_field=None,search_field=None,key='id',row=dict,order=None,version=3,**db):
+#    print('>>0:',group_field,',',search,',',out_fields,',',search_field)
+    group_field_and_rule=False
+    def make_group_field(group_field,avail_fields):
+        group_field_a=group_field.split(':')
+        if group_field_a[0] in avail_fields:
+            find_strings=':'.join(group_field_a[1:])
+            try:
+                find_int=int(find_strings)
+            except:
+                find_int=False
+            if "'" in find_strings:
+                search_sql="""( {}="{}" ) """.format(group_field_a[0],find_strings)
+            else:
+                if find_int:
+                    search_sql="""( {0}='{1}' or {0}={1} ) """.format(group_field_a[0],find_strings)
+                else:
+                    search_sql="""({}='{}') """.format(group_field_a[0],find_strings)
+            return True,search_sql
+        else:
+            return False,group_field_a[0]
+
+    search_sql=''
+    if out_fields is None:
+        out_fields='*'
+    elif isinstance(out_fields,list):
+        out_fields=','.join(out_fields)
+    if not search_field: search_field='{}_fts'.format(table_name)
+    if group_field:
+        avail_fields=SqlFieldInfo('{}_fts'.format(table_name),field_mode='name',out=dict,**db)
+        if isinstance(group_field,list):
+            gfield=[]
+            for ss in group_field:
+                ok,ss_sql=make_group_field(ss,avail_fields)
+                if ok:
+                    gfield.append(ss_sql)
+            if gfield:
+                if group_field_and_rule:
+                    search_sql=search_sql+' and '.join(gfield)
+                else:
+                    search_sql=search_sql+' or '.join(gfield)
+            else:
+                return False,'Not found group filed: {}'.format(search_sql)
+        else:
+            ok,search_sql=make_group_field(group_field,avail_fields)
+            if not ok:
+                return False,'Not found group filed: {}'.format(search_sql)
+    if search:
+        if search_sql: search_sql=search_sql+' and '
+        if "'" in search:
+            search_sql=search_sql+""" {} match "{}" """.format(search_field,search)
+        else:
+            search_sql=search_sql+""" {} match '{}' """.format(search_field,search)
+    if search_sql: search_sql=''' where {} '''.format(search_sql)
+    # select id,subject,title from memo_fts where subject='python' and memo_fts match 'flaskco*';
+    if order:
+#        print('>>>'+'''select {2} from {0} where {3} in (select {3} from {0}_fts {1}) order by {4} ;'''.format(table_name,search_sql,out_fields,key,order))
+        #cur,msg=SqlExec('''select {2} from {0} where {3} in (select {3} from {0}_fts where {1}) order by {4} ;'''.format(table_name,search_sql,out_fields,key,order),row=row,**db)
+        cur,msg=SqlExec('''select {2} from {0} where {3} in (select {3} from {0}_fts {1}) order by {4} ;'''.format(table_name,search_sql,out_fields,key,order),row=row,**db)
+    else:
+#        print('>>>'+'''select {2} from {0} where {3} in (select {3} from {0}_fts {1});'''.format(table_name,search_sql,out_fields,key,search_field))
+        #cur,msg=SqlExec('''select {2} from {0} where {3} in (select {3} from {0}_fts where {1});'''.format(table_name,search_sql,out_fields,key,search_field),row=row,**db)
+        cur,msg=SqlExec('''select {2} from {0} where {3} in (select {3} from {0}_fts {1});'''.format(table_name,search_sql,out_fields,key,search_field),row=row,**db)
+    return cur,msg
+
+def IsTable(table_name,**db):
+    cur,msg=SqlExec('''select name from sqlite_master where type='table' and name='{}';'''.format(table_name),row=dict,**db)
+    if cur:
+        return True
+    return False
+
+def GetTablenames(**db):
+    cur,msg=SqlExec('''select name from sqlite_master where type='table' and name!='sqlite_sequence';''',row=dict,**db)
+    return cur,msg
+
 if __name__ == '__main__':
     ######################################################
     #conn=SqlConInfo(module='sqlite3',db_file='database.db')
