@@ -17,4 +17,5 @@
 ########################################
 # pypi.org (pip# install <package>)
 ########################################
-python3 -m twine upload --verbose --repository-url https://upload.pypi.org/legacy/ --repository legacy dist/* 
+#python3 -m twine upload --verbose --repository-url https://upload.pypi.org/legacy/ --repository legacy dist/* 
+python3 -m twine upload --verbose dist/*
