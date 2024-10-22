@@ -236,7 +236,12 @@ def SqlExec(sql,data=[],row=list,mode='fetchall',encode=None,raw=False,**db):
                                 irow=tuple([Str(x) if isinstance(x,str) else x for x in irow])
                             con_info['cur'].execute(sql,irow)
             elif sql.count('?') == 1:
-                con_info['cur'].execute(sql,(data))
+                if raw:
+                    con_info['cur'].execute(sql,(data,))
+                else:
+                    if mode.lower() in ['put','save','commit','update']:
+                        data=(Str(data),)
+                    con_info['cur'].execute(sql,data)
             else:
                 return False,'SQL format and data numbers are mismatched'
         else:
