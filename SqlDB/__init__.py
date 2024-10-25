@@ -94,12 +94,12 @@ def SqlMkData(values,decode=None):
 
 
 def SqlConInfo(**info):
+    module=info.get('module','sqlite3')
     if info.get('conn'):
         conn=info.get('conn')
     else:
-        module=info.get('module')
         if module == 'sqlite3':
-            info=MkSQLiteExtend(**info) # Extend SQLite3 File (multi file to continue DB), Swap DB file to Query time DB file or current input time DB file
+            #info=MkSQLiteExtend(**info) # Extend SQLite3 File (multi file to continue DB), Swap DB file to Query time DB file or current input time DB file
             Import('sqlite3')
             db_file=info.get('db_file')
             if db_file:
@@ -206,6 +206,61 @@ def MkSQLiteExtend(**info):
     info['db_file']=dest_db
     return info
 
+def __sql_exe__(conn,sql,data=None):
+    if not isinstance(sql,str):
+        return False,'Wrong SQL format'
+
+    def __sql_raw_execute__(sql,data,conn):
+        try:
+            if data:
+                conn.execute(sql,tuple(data))
+            else:
+                conn.execute(sql)
+        except (sqlite3.Error,) as e:
+            return False,e
+        except (Exception, psycopg2.Error) as e:
+            return False,e
+        except:
+            e=sys.exc_info()[0]
+            er=traceback.format_exc()
+            return False,'{}\n{}'.format(e,er)
+
+    if data:
+        if isinstance(data,(list,tuple)):
+            if raw:
+                if sql.count('?') == len(data):
+                    o=__sql_raw_execute__(sql,data,conn)
+                    if isinstance(o,tuple) and not o[0]: return o
+                else:
+                    return False,'SQL format and data numbers are mismatched'
+            else:
+                if isinstance(data,tuple):
+                    #convert data
+                    if mode.lower() in ['put','save','commit','update']:
+                        data=tuple([Str(x) if isinstance(x,(str,bytes)) else x for x in data])
+                    o=__sql_raw_execute__(sql,data,conn)
+                    if isinstance(o,tuple) and not o[0]: return o
+                else:
+                    for irow in data:
+                        #convert data
+                        if mode.lower() in ['put','save','commit','update']:
+                            irow=tuple([Str(x) if isinstance(x,str) else x for x in irow])
+                        o=__sql_raw_execute__(sql,irow,conn)
+                        if isinstance(o,tuple) and not o[0]: return o
+        elif sql.count('?') == 1:
+            if raw:
+                o=__sql_raw_execute__(sql,(data,),conn)
+                if isinstance(o,tuple) and not o[0]: return o
+            else:
+                if mode.lower() in ['put','save','commit','update']:
+                    data=(Str(data),)
+                o=__sql_raw_execute__(sql,data,conn)
+                if isinstance(o,tuple) and not o[0]: return o
+        else:
+            return False,'SQL format and data numbers are mismatched'
+    else:
+        o=__sql_raw_execute__(sql,data,conn)
+        if isinstance(o,tuple) and not o[0]: return o
 
 def SqlExec(sql,data=[],row=list,mode='fetchall',encode=None,raw=False,**db):
     put_idx=None
@@ -214,78 +269,8 @@ def SqlExec(sql,data=[],row=list,mode='fetchall',encode=None,raw=False,**db):
         con_info=SqlConInfo(row=row,**db)
     else:
         con_info=SqlConInfo(**db)
-
-    def __sql_exe__(sql,data,con_info):
-        if data:
-            if isinstance(data,(list,tuple)):
-                if raw:
-                    if sql.count('?') == len(data):
-                        con_info['cur'].execute(sql,tuple(data))
-                    else:
-                        return False,'SQL format and data numbers are mismatched'
-                else:
-                    if isinstance(data,tuple):
-                        #convert data
-                        if mode.lower() in ['put','save','commit','update']:
-                            data=tuple([Str(x) if isinstance(x,(str,bytes)) else x for x in data])
-                        con_info['cur'].execute(sql,data)
-                    else:
-                        for irow in data:
-                            #convert data
-                            if mode.lower() in ['put','save','commit','update']:
-                                irow=tuple([Str(x) if isinstance(x,str) else x for x in irow])
-                            con_info['cur'].execute(sql,irow)
-            elif sql.count('?') == 1:
-                if raw:
-                    con_info['cur'].execute(sql,(data,))
-                else:
-                    if mode.lower() in ['put','save','commit','update']:
-                        data=(Str(data),)
-                    con_info['cur'].execute(sql,data)
-            else:
-                return False,'SQL format and data numbers are mismatched'
-        else:
-            try:
-                con_info['cur'].execute(sql)
-            except:
-                e=sys.exc_info()[0]
-                er=traceback.format_exc()
-                return False,'{}\n{}'.format(e,er)
-
-    if db.get('module') in ['psql','postgresql']:
-        try:
-            __sql_exe__(sql,data,con_info)
-        except (Exception, psycopg2.Error) as e:
-            return False,e
-    else:
-        try:
-            nn=__sql_exe__(sql,data,con_info)
-            if isinstance(nn,tuple) and nn[0] is False:
-                return nn
-        except (sqlite3.Error,) as e:
-            return False,e
-
-
-#    try:
-#        if data and isinstance(data,(tuple,list)):
-#            if isinstance(data,tuple):
-#                #convert data
-#                if mode.lower() in ['put','save','commit','update']:
-#                    data=tuple([Str(x) if isinstance(x,(str,bytes)) else x for x in data])
-#                con_info['cur'].execute(sql,data)
-#            else:
-#                for row in data:
-#                    #convert data
-#                    if mode.lower() in ['put','save','commit','update']:
-#                        row=tuple([Str(x) if isinstance(x,str) else x for x in row])
-#                    con_info['cur'].execute(sql,row)
-#        else:
-#            con_info['cur'].execute(sql)
-#    except (Exception, sqlite3.Error,) as e:
-#        return False,e
-#    except (Exception, psycopg2.Error) as e:
-#        return False,e
-
+    o=__sql_exe__(con_info['cur'],sql,data)
+    if isinstance(o,tuple) and not o[0]: return o
     if con_info['module'] == 'sqlite3':
         if row is dict:
             con_info['cur'].row_factory = lambda c,r:dict([(col[0], r[idx]) for idx, col in enumerate(con_info['cur'].description)])
@@ -321,6 +306,120 @@ def SqlExec(sql,data=[],row=list,mode='fetchall',encode=None,raw=False,**db):
         rt=[i for i in con_info['cur'].fetchall()]
     con_info['conn'].close()
     return rt,None
+
+#def SqlExec(sql,data=[],row=list,mode='fetchall',encode=None,raw=False,**db):
+#    put_idx=None
+#    if sql is False: return False,data
+#    if db.get('module') in ['psql','postgresql']:
+#        con_info=SqlConInfo(row=row,**db)
+#    else:
+#        con_info=SqlConInfo(**db)
+# 
+#    def __sql_exe__(sql,data,con_info):
+#        if data:
+#            if isinstance(data,(list,tuple)):
+#                if raw:
+#                    if sql.count('?') == len(data):
+#                        con_info['cur'].execute(sql,tuple(data))
+#                    else:
+#                        return False,'SQL format and data numbers are mismatched'
+#                else:
+#                    if isinstance(data,tuple):
+#                        #convert data
+#                        if mode.lower() in ['put','save','commit','update']:
+#                            data=tuple([Str(x) if isinstance(x,(str,bytes)) else x for x in data])
+#                        con_info['cur'].execute(sql,data)
+#                    else:
+#                        for irow in data:
+#                            #convert data
+#                            if mode.lower() in ['put','save','commit','update']:
+#                                irow=tuple([Str(x) if isinstance(x,str) else x for x in irow])
+#                            con_info['cur'].execute(sql,irow)
+#            elif sql.count('?') == 1:
+#                if raw:
+#                    con_info['cur'].execute(sql,(data,))
+#                else:
+#                    if mode.lower() in ['put','save','commit','update']:
+#                        data=(Str(data),)
+#                    con_info['cur'].execute(sql,data)
+#            else:
+#                return False,'SQL format and data numbers are mismatched'
+#        else:
+#            try:
+#                con_info['cur'].execute(sql)
+#            except:
+#                e=sys.exc_info()[0]
+#                er=traceback.format_exc()
+#                return False,'{}\n{}'.format(e,er)
+# 
+#    if db.get('module') in ['psql','postgresql']:
+#        try:
+#            __sql_exe__(sql,data,con_info)
+#        except (Exception, psycopg2.Error) as e:
+#            return False,e
+#    else:
+#        try:
+#            nn=__sql_exe__(sql,data,con_info)
+#            if isinstance(nn,tuple) and nn[0] is False:
+#                return nn
+#        except (sqlite3.Error,) as e:
+#            return False,e
+
+##    try:
+##        if data and isinstance(data,(tuple,list)):
+##            if isinstance(data,tuple):
+##                #convert data
+##                if mode.lower() in ['put','save','commit','update']:
+##                    data=tuple([Str(x) if isinstance(x,(str,bytes)) else x for x in data])
+##                con_info['cur'].execute(sql,data)
+##            else:
+##                for row in data:
+##                    #convert data
+##                    if mode.lower() in ['put','save','commit','update']:
+##                        row=tuple([Str(x) if isinstance(x,str) else x for x in row])
+##                    con_info['cur'].execute(sql,row)
+##        else:
+##            con_info['cur'].execute(sql)
+##    except (Exception, sqlite3.Error,) as e:
+##        return False,e
+##    except (Exception, psycopg2.Error) as e:
+##        return False,e
+
+#    if con_info['module'] == 'sqlite3':
+#        if row is dict:
+#            con_info['cur'].row_factory = lambda c,r:dict([(col[0], r[idx]) for idx, col in enumerate(con_info['cur'].description)])
+#        else:
+#            con_info['cur'].row_factory=None
+#    rt=[]
+#    if mode.lower() in ['put','save','commit','update']:
+#        con_info['cur'].execute('select last_insert_rowid();')
+#        idx=con_info['cur'].fetchone()
+#        try:
+#            con_info['conn'].commit()
+#        except sqlite3.OperationalError as e:
+#            ok=0
+#            for i in range(0,10):
+#                #print('>> retry({}/5) DB commit after 1 second for {}'.format(i,e))
+#                time.sleep(1)
+#                try:
+#                    con_info['conn'].commit()
+#                    ok=1
+#                    break
+#                except sqlite3.OperationalError as e:
+#                    pass
+#            if ok == 0:
+#                con_info['conn'].close()
+#                return False,e
+#        if idx:
+#            rt=idx[0]
+#        else:
+#            rt=True
+#    elif mode.lower() in ['one','single','get_one','get_single','fetchone']:
+#        rt=[i for i in con_info['cur'].fetchone()]
+#    else:
+#        rt=[i for i in con_info['cur'].fetchall()]
+#    con_info['conn'].close()
+#    return rt,None
 
 def SqlAutoIdx(table_name,index='id',**db):
     #"select seq from sqlite_sequence where name='{}'".format(table_name)
@@ -829,6 +928,331 @@ def IsTable(table_name,**db):
 def GetTablenames(**db):
     cur,msg=SqlExec('''select name from sqlite_master where type='table' and name!='sqlite_sequence';''',row=dict,**db)
     return cur,msg
+
+def MkTableInDB(sql=None,**info):
+    module=info.get('module')
+    if module == 'sqlite3':
+        src_db=info.get('db_file')
+        if not isinstance(src_db,str):
+            return False,'Wrong DB file'
+        base_dir=os.path.dirname(src_db)
+        if base_dir and not os.path.isdir(base_dir):
+            return False,'Not found database directory:{}'.format(base_dir)
+        Import('sqlite3')
+        if not sql:
+            table_name=info.get('table_name')
+            fields=info.get('fields')
+            sql=f'''CREATE TABLE IF NOT EXISTS {table_name} ('''
+            if isinstance(fields,(list,tuple)):
+                sql=sql+', '.join(fields)
+            sql=sql+');'
+        o=SqlExec(sql,mode='commit',**info)
+        if isinstance(o,tuple) and not o[0]:
+            return o
+        return True,'created sql'
+    return False,'unknown module'
+
+def GetTableSeq(src_db,table_name=None,create=False):
+    #Get sequence number of tables in db file
+    if not create and not os.path.isfile(src_db):
+        return False,'DB file({}) not found'.format(src_db),'DB file({}) not found'.format(src_db)
+    # If not found Extend file then create Extend DB file for writing new Data
+    Import('sqlite3')
+    src_conn=sqlite3.connect(src_db)   # existing DB file
+    src_conn.row_factory=sqlite3.Row
+    scur=src_conn.cursor()
+    # Update ID information to expend
+    scur.execute("select * from sqlite_sequence")
+    seq_table=scur.fetchall()
+    tables=[]
+    tables_name=[]
+    for t in seq_table:
+        if table_name and table_name != t['name']: continue
+        tables.append(t)
+        tables_name.append(t['name'])
+    return src_conn,tables,tables_name
+
+def AddTableSeq(dest_db,tables,tables_name,idx=None):
+    #copy source(tables) to dest_db
+    # idx: None: copy last number, int: copy information but change sequence number to idx
+    dest_conn,dest_tables,dest_tables_name=GetTableSeq(dest_db,create=True)
+    for i in tables_name:
+        if i in dest_tables_name:
+            return False,f'Alreay {i} in sqlite_sequence of {dest_db}'
+
+    dcur=dest_conn.cursor()
+    for i,t in enumerate(tables):
+        ik=t.keys()
+        query='INSERT INTO sqlite_sequence (%(key)s) VALUES (%(val)s)' % {
+            'key':','.join(ik),
+            'val':','.join(('?',) * len(ik))
+        }
+        if isinstance(idx,int):
+            v=[idx if c == 'seq' else tables_name[i] if c=='name' else t[c] for c in ik]
+        else:
+            v=[tables_name[i] if c=='name' else t[c] for c in ik]
+        dcur.execute(query, v)
+    dest_conn.commit()
+    dest_conn.close()
+
+def UpdateTableSeq(src_db,idx,src_table=None):
+    src_conn,tables,tables_name=GetTableSeq(src_db,table_name=src_table)
+    if src_conn is False: return src_conn,tables
+    scur=src_conn.cursor()
+    if not isinstance(idx,int):
+        return False,'idx must be int'
+
+    query='UPDATE sqlite_sequence SET '
+    if src_table:
+        if src_table not in tables_name:
+            return False,'source table({}) not found'.format(src_table)
+        t=tables[tables_name.index(src_table)]
+        ik=t.keys()
+        #Update
+        q=''
+        v=[]
+        for i in ik:
+            if i == 'seq':
+                q=q+', seq={}'.format(idx) if q else 'seq={}'.format(idx)
+            else:
+                q=q+', {}=?'.format(i) if q else '{}=?'.format(i)
+                v.append(t[i])
+        scur.execute(query+q, v)
+    else:
+        for t in tables:
+            ik=t.keys()
+            q=''
+            v=[]
+            for i in ik:
+                if i == 'seq':
+                    q=q+', seq={}'.format(idx) if q else 'seq={}'.format(idx)
+                else:
+                    q=q+', {}=?'.format(i) if q else '{}=?'.format(i)
+                    v.append(t[i])
+            scur.execute(query+q, v)
+    src_conn.commit()
+    src_conn.close()
+
+def CloneDBTable(src_db,source_table=None,dest_table=None,dest_db=None,seq=0,data=False):
+    if not os.path.isfile(src_db):
+        return False,'Source DB file({}) not found'.format(src_db)
+    if not dest_db:
+        if not dest_table:
+            return False,'Dest Table not input'
+        if not source_table:
+            return False,'If Same DB file then clone Table to Other name Table, but not input source table name'
+
+    # If not found Extend file then create Extend DB file for writing new Data
+    Import('sqlite3')
+    src_conn=sqlite3.connect(src_db)   # existing DB file
+    src_conn.row_factory=sqlite3.Row
+    scur=src_conn.cursor()
+    scur.execute('SELECT * from sqlite_master')
+    master=scur.fetchall()
+    tables=[]
+    tables_name=[]
+    for t in filter(lambda r:r['type'] == 'table', master):
+        if t['type'] == 'table' and t['name'] != 'sqlite_sequence':
+            tables.append(t)
+            tables_name.append(t['name'])
+    if dest_db:
+        src_conn.close() # No more use source DB
+
+        dest_conn=sqlite3.connect(dest_db)   # existing DB file
+        dest_conn.row_factory=sqlite3.Row
+        dcur=dest_conn.cursor()
+        dcur.execute('SELECT * from sqlite_master')
+        dmaster=dcur.fetchall()
+        dtables_name=[]
+        for t in filter(lambda r:r['type'] == 'table', dmaster):
+            if t['type'] == 'table' and t['name'] != 'sqlite_sequence':
+                dtables_name.append(t['name'])
+        if not source_table and not dest_table: # clone file to file for Table schema
+            for t in tables:
+                sn=t['name']
+                if sn in dtables_name:
+                    return False,f'{sn} in dest db({dest_db})'
+                dest_sql=t['sql']
+                dcur.execute(dest_sql)
+            dest_conn.commit()
+            dest_conn.close()
+
+            #Update SEQ
+            s_conn,seq_source,seq_source_name=GetTableSeq(src_db)
+            s_conn.close()
+            AddTableSeq(dest_db,seq_source,seq_source_name,idx=seq) # copy source seq to dest
+
+        elif isinstance(source_table,str) and source_table: # Copy Source to Dest DB File
+            source_table_a=source_table.split(',')
+            if len(source_table_a) == 1 and isinstance(dest_table,str) and dest_table:# Copy source to changed name dest table in dest DB File
+                if dest_table in dtables_name:
+                    return False,f'{dest_name} is in dest DB({dest_db})'
+                if source_table not in tables_name:
+                    return False,f'{source_table} not in source DB({src_db})'
+                dest_sql=tables[tables_name.index(source_table)]['sql']
+                dest_sql=dest_sql.replace(f'TABLE {source_table} (',f'TABLE {dest_table} (')
+                dcur.execute(dest_sql)
+                dest_conn.commit()
+                dest_conn.close()
+                #Update SEQ
+                s_conn,seq_source,seq_source_name=GetTableSeq(src_db,table_name=source_table)
+                s_conn.close()
+                AddTableSeq(dest_db,seq_source,[dest_table],idx=seq) # copy source seq to dest
+
+            else: # Copy Source tables to Dest DB File
+                seq_d=[]
+                seq_dn=[]
+                for s in source_table_a:
+                    if s in dtables_name:
+                        print(f'{s} in dest db({dest_db})')
+                        continue
+                    if s in tables_name:
+                        dest_sql=tables[tables_name.index(s)]['sql']
+                        dcur.execute(dest_sql)
+                        s_conn,seq_source,seq_source_name=GetTableSeq(src_db,table_name=s)
+                        s_conn.close()
+                        seq_d.append(seq_source[0])
+                        seq_dn.append(seq_source_name[0])
+                dest_conn.commit()
+                dest_conn.close()
+
+                #Update SEQ
+                AddTableSeq(dest_db,seq_d,seq_dn,idx=seq) # copy source seq to dest
+
+    else: # Copy Local Table to changed Table name in self db file
+        if not source_table or not dest_table:
+            return False,'It required source table name and dest table name'
+        if source_table not in tables_name:
+            return False,f'source({source_table}) not found in current DB'
+        if dest_table in tables_name:
+            return False,f'dest({dest_table}) found in current DB'
+        dest_sql=tables[tables_name.index(source_table)]['sql']
+        dest_sql=dest_sql.replace(f'TABLE {source_table} (',f'TABLE {dest_table} (')
+        scur.execute(dest_sql)
+        src_conn.commit()
+        src_conn.close()
+
+        #Update SEQ
+        s_conn,seq_source,seq_source_name=GetTableSeq(src_db,table_name=source_table)
+        s_conn.close()
+        AddTableSeq(src_db,seq_source,[dest_table],idx=seq) # copy source seq to dest
+
+    if data: # copy data
+        CloneDBTableData(src_db,dest_db,source_table,dest_table,clone=True)
+
+def CloneDBTableData(src_db,dest_db,source_table=None,dest_table=None,stack=False,clone=True,ignore_fields=[]):
+    #src_db: source DB FIle
+    #source_table: None: Copy all table in the src_db, <name>: copy only the <name>
+    #dest_db: dest DB FIle
+    #dest_table: None: same as source_table, <name>: change the table name
+    #  if dest_table exist then source_table also single
+    #stack : copy data to stack at existing data
+    #clone : copy all data to same even primary key too
+    #ignore_fields: it required clone=False, copy data wihout ignore_fields
+
+    if stack: clone=False
+    if not os.path.isfile(src_db):
+        return False,'Source DB file({}) not found'.format(src_db)
+    if not dest_db: dest_db=src_db
+    if not os.path.isfile(dest_db):
+        return False,'Dest DB file({}) not found'.format(dest_db)
+
+    def _clone_(cur,conn,stable_name,dtable_name):
+        cur.execute(f'SELECT * from {stable_name}')
+        rows=cur.fetchall()
+        if rows:
+           placeholders=', '.join(['?' for _ in range(len(rows[0]))])
+           conn.executemany(f"INSERT INTO {dtable_name} VALUES ({placeholders});", rows)
+
+    def _sel_copy_(stable_name,src_db,cur,dtable_name,conn,stack,ignore_fields):
+        if not isinstance(ignore_fields,list): ignore_fields=[]
+        fields=[]
+        fields_info=SqlFieldInfo(stable_name,field_mode='name',db_file=src_db)
+        for fnn in fields_info:
+            if stack and fields_info[fnn]['primary']: continue
+            if fnn in ignore_fields: continue
+            fields.append(fnn)
+        cur.execute(f"SELECT {','.join(fields)} from {stable_name}")
+        rows=scur.fetchall()
+        query='INSERT INTO %(dest_table)s (%(key)s) VALUES (%(val)s)' % {
+          'dest_table':dtable_name,
+          'key':','.join(fields),
+          'val':','.join(('?',) * len(fields))
+        }
+        dcur=conn.cursor()
+        for rr in rows:
+           dcur.execute(query, rr)
+
+    # If not found Extend file then create Extend DB file for writing new Data
+    Import('sqlite3')
+    src_table_name=[a['name'] for a in GetTablenames(db_file=src_db)[0]]
+    dest_table_name=[a['name'] for a in GetTablenames(db_file=dest_db)[0]]
+    if not source_table and not dest_table: # clone file to file for Table schema
+        if src_db == dest_db:
+            return False,'Same DB, can not copy to self'
+        dest_conn=sqlite3.connect(dest_db)
+        src_conn=sqlite3.connect(src_db)   # existing DB file
+        scur=src_conn.cursor()
+        for stn in src_table_name:
+            if stn not in dest_table_name:
+                return False,f"{stn} not in {dest_db}"
+            if stn not in dest_table_name:
+                return False,f'{stn} not in dest DB({dest_db})'
+            if clone:
+                _clone_(scur,dest_conn,stn,stn)
+            else:
+                _sel_copy_(stn,src_db,scur,stn,dest_conn,stack,ignore_fields)
+        src_conn.close()
+        dest_conn.commit()
+        dest_conn.close()
+
+    elif isinstance(source_table,str) and source_table: # Copy Source to Dest DB File
+        source_table_a=source_table.split(',')
+        if len(source_table_a) == 1 and isinstance(dest_table,str) and dest_table:# Copy source to changed name dest table in dest DB File
+            if dest_table not in dest_table_name:
+                return False,f'{dest_name} not in dest DB({dest_db})'
+            if source_table not in src_table_name:
+                return False,f'{source_table} not in source DB({src_db})'
+            dest_conn=sqlite3.connect(dest_db)
+            src_conn=sqlite3.connect(src_db)   # existing DB file
+            scur=src_conn.cursor()
+            if clone:
+                _clone_(scur,dest_conn,source_table,dest_table)
+            else:
+                _sel_copy_(source_table,src_db,scur,dest_table,dest_conn,stack,ignore_fields)
+            src_conn.close()
+            dest_conn.commit()
+            dest_conn.close()
+        else: # Copy Source tables to Dest DB File
+            dest_conn=sqlite3.connect(dest_db)
+            src_conn=sqlite3.connect(src_db)   # existing DB file
+            scur=src_conn.cursor()
+            for stn in source_table_a:
+               if stn not in dest_table_name:
+                   return False,f'{stn} not in dest DB({dest_db})'
+               if clone:#Clone
+                   _clone_(scur,dest_conn,stn,stn)
+               else:
+                   _sel_copy_(stn,src_db,scur,stn,dest_conn,stack,ignore_fields)
+            src_conn.close()
+            dest_conn.commit()
+            dest_conn.close()
+    else: # Copy Local Table to changed Table name in self db file
+        if dest_table not in dest_table_name:
+            return False,f'{dest_name} not in dest DB({dest_db})'
+        if source_table not in src_table_name:
+            return False,f'{source_table} not in source DB({src_db})'
+        if source_table == dest_table:
+            return False,f'can not copy it self'
+        src_conn=sqlite3.connect(src_db)   # existing DB file
+        scur=src_conn.cursor()
+        if clone: #Copy to backend
+            _clone_(scur,src_conn,source_table,dest_table)
+        else:
+            _sel_copy_(source_table,src_db,scur,dest_table,src_conn,stack,ignore_fields)
+        src_conn.commit()
+        src_conn.close()
+
 
 if __name__ == '__main__':
     ######################################################
