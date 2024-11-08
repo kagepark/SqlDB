@@ -487,7 +487,10 @@ def SqlUpdate(tablename,rows,fields=[],condition=[],decode=None,dbg=False,**db):
                     tmp,conn=NewSqlExe(sql,value=values,**db)
                     return tmp,conn
             return False,values
+        tmp=False
         for row in rows:
+            sql=None
+            values=None
             if isinstance(row,dict):
                 sql,values=single_dict_row(tablename,row,decode=decode,condition=condition)
             elif isinstance(row,(tuple,list)):
@@ -499,7 +502,7 @@ def SqlUpdate(tablename,rows,fields=[],condition=[],decode=None,dbg=False,**db):
                 else:
                     #tmp,conn=SqlExec(sql,values,mode='commit',**db)
                     tmp,conn=NewSqlExe(sql,value=values,**db)
-        return tmp,conn
+        return True,conn
     return False,values
 
 
