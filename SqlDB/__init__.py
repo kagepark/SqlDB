@@ -3,11 +3,9 @@ import sys
 import time
 import traceback
 from kmport import *
-#SQLite3
-#import sqlite3
-#Postgresql
-#import psycopg2
-#import psycopg2.extras
+Import('sqlite3')
+Import('psycopg2')
+Import('psycopg2.extras')
 
 try:
     # yum install sqlcipher
@@ -16,6 +14,26 @@ try:
     enc=True
 except:
     enc=False
+
+def NewOpts(src,**opts):
+    if isinstance(src,dict):
+        for k in opts:
+            if opts[k] is not None: src[k]=opts[k]
+    return src
+
+def IsPSQL(**info):
+    conn=info.get('conn',info.get('con'))
+    if isinstance(conn,psycopg2.extensions.connection):
+        return True
+    module=info.get('module')
+    ips=info.get('ip',info.get('host'))
+    user=info.get('user')
+    passwd=info.get('passwd',info.get('password'))
+    if ips and user and passwd: return True
+    if isinstance(module,str): module=module.lower()
+    if module in ['psql','postgres']:
+        return True
+    return False
 
 def SqlLike(field,find_src,mode='OR',sensitive=False):
     if not isinstance(find_src,(tuple,list)):
@@ -120,168 +138,8 @@ def SmartSqlMkData(table_name,key,data,decode=None,correct_count=False,**db_info
             data[i]=Bytes(data[i])
     return tuple(data),'ok'
 
-def SqlConInfo(**info):
-    conn=None
-    cur=None
-    if info.get('conn'):
-        conn=info.get('conn')
-    else:
-        module=info.get('module')
-        if module == 'sqlite3':
-            Import('sqlite3')
-            db_file=info.get('db_file')
-            if db_file:
-                #Encripted DB
-                if info.get('enc_key'):
-                    if enc:
-                        conn=sqlcipher.connect(db_file)
-                        conn.execute('pragma key="{}"'.format(info.get('enc_key')))
-                        conn.row_factory=sqlcipher.Row
-                    else:
-                        print('Please install sqlcipher(yum install sqlcipher) and pysqlcipher3(pip3 install pysqlcipher3)')
-                else:
-                    conn=sqlite3.connect(db_file)
-                    conn.row_factory=sqlite3.Row
-        elif module in ['psql','postgresql']:
-            Import('psycopg2')
-            Import('psycopg2.extras')
-            info['module']='psql'
-            timeout=info.get('timeout',1)
-            port=info.get('port',5432)
-            user=info.get('user')
-            passwd=info.get('passwd')
-            ips=info.get('ip')
-            db=info.get('db')
-            if isinstance(ips,str): ips=ips.split(',')
-            for ip in ips: 
-                try:
-                    conn = psycopg2.connect(database = db, user = user, password = passwd, host = ip, port = port,connect_timeout=timeout)
-                    break
-                except psycopg2.OperationalError as e:
-                    print('Unable to connect! : {0}'.format(e))
-    if conn:
-        if module == 'psql':
-            if info.get('row',dict) is dict:
-                cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            else:
-                cur = conn.cursor()
-        elif module == 'sqlite3':
-            if info.get('cur'):
-                cur=info.get('cur')
-            else:
-                cur=conn.cursor()
-    return {'conn':conn,'cur':cur,'info':info,'module':info['module']}
-
-
 def SqlExec(sql,data=[],row=list,mode='fetchall',encode=None,raw=False,**db):
     return NewSqlExe(sql,value=data,row=row,table_name=None,**db)
-    #put_idx=None
-
-    #if sql is False: return False,data
-    #if db.get('module') in ['psql','postgresql']:
-    #    con_info=SqlConInfo(row=row,**db)
-    #else:
-    #    con_info=SqlConInfo(**db)
-
-    #def __sql_exe__(sql,data,con_info,raw=False):
-    #    if data:
-    #        if sql.count('?') == 1:
-    #            if not isinstance(data,(tuple,list)):
-    #                data=(data,)
-    #        if isinstance(data,(tuple,list)):
-    #            #Single line data
-    #            if isinstance(data,tuple) and sql.count('?') == len(data):
-    #                #convert data
-    #                if not raw:
-    #                    if mode.lower() in ['put','save','commit','update']:
-    #                        data=tuple([Str(x) if isinstance(x,(str,bytes)) else x for x in data])
-    #                con_info['cur'].execute(sql,data)
-    #            else:
-    #                #multi line data
-    #                for irow in data:
-    #                    #convert data
-    #                    if isinstance(irow,tuple) and sql.count('?') == len(irow):
-    #                        if not raw:
-    #                            if mode.lower() in ['put','save','commit','update']:
-    #                                irow=tuple([Str(x) if isinstance(x,str) else x for x in irow])
-    #                    con_info['cur'].execute(sql,irow)
-    #    else:
-    #        try:
-    #            con_info['cur'].execute(sql)
-    #        except:
-    #            e=sys.exc_info()[0]
-    #            er=traceback.format_exc()
-    #            return False,'{}\n{}'.format(e,er)
-
-    #if db.get('module') in ['psql','postgresql']:
-    #    try:
-    #        __sql_exe__(sql,data,con_info,raw)
-    #    except (Exception, psycopg2.Error) as e:
-    #        return False,e
-    #else:
-    #    try:
-    #        nn=__sql_exe__(sql,data,con_info,raw)
-    #        if isinstance(nn,tuple) and nn[0] is False:
-    #            return nn
-    #    except (sqlite3.Error,) as e:
-    #        return False,e
-
-
-#   #try:
-#   #    if data and isinstance(data,(tuple,list)):
-#   #        if isinstance(data,tuple):
-#   #            #convert data
-#   #            if mode.lower() in ['put','save','commit','update']:
-#   #                data=tuple([Str(x) if isinstance(x,(str,bytes)) else x for x in data])
-#   #            con_info['cur'].execute(sql,data)
-#   #        else:
-#   #            for row in data:
-#   #                #convert data
-#   #                if mode.lower() in ['put','save','commit','update']:
-#   #                    row=tuple([Str(x) if isinstance(x,str) else x for x in row])
-#   #                con_info['cur'].execute(sql,row)
-#   #    else:
-#   #        con_info['cur'].execute(sql)
-#   #except (Exception, sqlite3.Error,) as e:
-#   #    return False,e
-#   #except (Exception, psycopg2.Error) as e:
-#   #    return False,e
-
-    #if con_info['module'] == 'sqlite3':
-    #    if row is dict:
-    #        con_info['cur'].row_factory = lambda c,r:dict([(col[0], r[idx]) for idx, col in enumerate(con_info['cur'].description)])
-    #    else:
-    #        con_info['cur'].row_factory=None
-    #rt=[]
-    #if mode.lower() in ['put','save','commit','update']:
-    #    con_info['cur'].execute('select last_insert_rowid();')
-    #    idx=con_info['cur'].fetchone()
-    #    try:
-    #        con_info['conn'].commit()
-    #    except sqlite3.OperationalError as e:
-    #        ok=0
-    #        for i in range(0,10):
-    #            #print('>> retry({}/5) DB commit after 1 second for {}'.format(i,e))
-    #            time.sleep(1)
-    #            try:
-    #                con_info['conn'].commit()
-    #                ok=1
-    #                break
-    #            except sqlite3.OperationalError as e:
-    #                pass
-    #        if ok == 0:
-    #            con_info['conn'].close()
-    #            return False,e
-    #    if idx:
-    #        rt=idx[0]
-    #    else:
-    #        rt=True
-    #elif mode.lower() in ['one','single','get_one','get_single','fetchone']:
-    #    rt=[i for i in con_info['cur'].fetchone()]
-    #else:
-    #    rt=[i for i in con_info['cur'].fetchall()]
-    #con_info['conn'].close()
-    #return rt,None
 
 def SqlAutoIdx(table_name,index='id',**db):
     #data,msg=SqlExec('''select max({}) from {};'''.format(index,table_name),row=list,**db)
@@ -293,7 +151,8 @@ def SqlAutoIdx(table_name,index='id',**db):
     return True,1
 
 def SqlTableInfo(with_field=False,**db):
-    if db.get('module') in ['psql','postgresql']:
+    #if db.get('module') in ['psql','postgresql']:
+    if IsPSQL(**NewOpts(db)):
         #data,msg=SqlExec('''select table_name from information_schema.tables where table_schema='public' and table_type='BASE TABLE';''',row=list,**db)
         data,msg=NewSqlExe('''select table_name from information_schema.tables where table_schema='public' and table_type='BASE TABLE';''',row=list,**db)
     else:
@@ -313,7 +172,8 @@ def SqlTableInfo(with_field=False,**db):
 def SqlFieldInfo(table_name,field_mode='name',out=dict,**db):
     rt={}
     if not isinstance(table_name,str): return rt
-    if db.get('module') in ['psql','postgresql']:
+    #if db.get('module') in ['psql','postgresql']:
+    if IsPSQL(**NewOpts(db)):
         #data_type similar but simple word is udt_name
         sql='''SELECT ordinal_position,column_name,udt_name,is_nullable,column_default,character_maximum_length FROM information_schema.columns WHERE table_catalog='{}' and table_name = '{}';'''.format(db.get('db'),table_name)
         #data,msg=SqlExec(sql,row=list,**db)
@@ -368,9 +228,13 @@ def SqlFieldInfo(table_name,field_mode='name',out=dict,**db):
 
 def SqlPut(tablename,rows,fields=[],decode=None,check=False,dbg=False,**db):
     if 'mode' in db: db.pop('mode')
+    is_psql=IsPSQL(**db)
     def MkSql(tablename,keys):
         fields=','.join(keys)
-        question_marks=','.join('?'*len(keys))
+        if is_psql:
+            question_marks=','.join(['%s' for i in range(len(keys))])
+        else:
+            question_marks=','.join('?'*len(keys))
         return 'INSERT INTO '+tablename+' ('+fields+') VALUES ('+question_marks+')'
 
     def single_dict_row(tablename,row,decode=None):
@@ -426,22 +290,26 @@ def SqlPut(tablename,rows,fields=[],decode=None,check=False,dbg=False,**db):
         return rows_idx,msg
     return False,None
 
-def SqlUpdate(tablename,rows,fields=[],condition=[],decode=None,dbg=False,**db):
+def SqlUpdate(tablename,rows,fields=[],decode=None,dbg=False,**db):
     '''
     rows=[<data>,...] or [{<field name>:<data>}] : Update data 
     fields=[<field name>,...] for rows with [<data>,...]
     condition=[{<field name>:<data>}] : Update data find condition
     '''
+    condition=db.get('condition',db.get('find',[]))
     if 'mode' in db: db.pop('mode')
+    is_psql=IsPSQL(**db)
     #UPDATE <Table> SET <Field> = <Val> WHERE <Field>='<find>'
-    #cur,conn,db,info=SqlConInfo(cur)
     def MkSql(tablename,keys,condition=None,values=[]):
         # Need update ","
-        keys=[ '{}=?'.format(i) for i in keys ]
+        if is_psql:
+            keys=[ '{}=%s'.format(i) for i in keys ]
+        else:
+            keys=[ '{}=?'.format(i) for i in keys ]
         sql='UPDATE '+tablename+' SET '+','.join(keys)
         if condition:
             sql=sql+ ' WHERE'
-            sql,tmp=SqlWhere(sql,[],condition)
+            sql,tmp=SqlWhere(sql,[],condition,q_mark='%s' if is_psql else '?')
             if tmp:
                 for ii in tmp:
                     values.append(ii)
@@ -464,6 +332,14 @@ def SqlUpdate(tablename,rows,fields=[],condition=[],decode=None,dbg=False,**db):
         #return sql,SqlMkData(row,decode)
         return sql, SmartSqlMkData(tablename,keys,row,decode,**db)[0]
 
+#    if isinstance(condition,str):
+#        if '=' in condition:
+#            cc_a=condition.split()
+#            if len(cc_a)==3:
+#                condition=[{cc_a[0]:{cc_a[1]:cc_a[2]}}]
+#    elif isinstance(condition,tuple) and len(condition)==2:
+#        condition=[{condition[0]:{'=':condition[-1]}}]
+    condition=SqlSimpleCondition(condition)
     if isinstance(rows,dict):
         sql,values=single_dict_row(tablename,rows,decode=decode,condition=condition)
         if sql and values:
@@ -572,38 +448,56 @@ def SqlGet(sql=None,tablename=None,find=[],out_fields=[],order=[],group=[],row=l
 #        return False,'{}'.format(e)
 
 
-def SqlDel(sql=None,tablename=None,find=[],dbg=False,**db):
+def SqlDel(sql=None,tablename=None,dbg=False,**db):
     '''
     sql=<SQL Format String>, If None then make from info, rows, out_fiels
     find=[{<field name>:<data>}] for info or [<data>,...] for sql
     '''
+    condition=db.get('condition',db.get('find',[]))
+    condition=SqlSimpleCondition(condition)
     if 'mode' in db: db.pop('mode')
+    is_psql=IsPSQL(**db)
     values=[]
     if isinstance(sql,str):
         if '?' in sql and isinstance(find,(list,tuple)) and len([ i for i in sql if i == '?']) == len(find):
             values=find
     elif tablename:
         sql='DELETE FROM {}'.format(tablename)
-        if isinstance(find,(list,tuple)):
+        if isinstance(condition,(list,tuple)):
             sql=sql+' WHERE'
-            for r in find:
-                sql,tmp=SqlWhere(sql,values,r)
+            for r in condition:
+                sql,tmp=SqlWhere(sql,values,r,q_mark='%s' if is_psql else '?')
     if dbg:
         print('sql={}, data={}'.format(sql,values))
         return 'sql={}, data={}'.format(sql,values)
     try:
+        print('DL: sql={}, data={}'.format(sql,values))
         #return SqlExec(sql,tuple(values),mode='commit',**db)
         return NewSqlExe(sql,value=tuple(values),**db)
     except Exception as e:
         return False,'{}'.format(e)
 
+def SqlSimpleCondition(condition):
+    if isinstance(condition,str):
+        if '=' in condition:
+            cc_a=condition.split()
+            if len(cc_a)==3:
+                return [{cc_a[0]:{cc_a[1]:cc_a[2]}}]
+            elif len(cc_a) == 1:
+                cc_a=condition.split('=')
+                if len(cc_a) == 2:
+                    return [{cc_a[0]:{'=':cc_a[1]}}]
+    elif isinstance(condition,tuple) and len(condition)==2:
+        return [{condition[0]:{'=':condition[-1]}}]
+    if not condition: return []
+    return condition
 
-def SqlWhere(sql,values,sub,field=None,mode=None):
+def SqlWhere(sql,values,sub,field=None,mode=None,q_mark='?'):
     def dict_sql(sql,field,mods,symbol=False,mode=None):
         mod=next(iter(mods))
         modl=Str(mod).lower() if isinstance(mod,(str,bytes)) else mod
         if modl in ['and','or']:
-            sql,m=SqlWhere(sql,values,mods,field=field)
+            sql,m=SqlWhere(sql,values,mods,field=field,q_mark=q_mark)
         else:
             if symbol: sql=sql+' {}'.format(mode)
             if modl == 'like':
@@ -626,7 +520,7 @@ def SqlWhere(sql,values,sub,field=None,mode=None):
                     sql=sql+' {} is {}'.format(field,modv)
                     return sql,None
                 else:
-                    sql=sql+' {} {} ?'.format(field,mod)
+                    sql=sql+' {} {} {}'.format(field,mod,q_mark)
                     return sql,mods[mod]
 
     if isinstance(sub,dict):
@@ -636,12 +530,12 @@ def SqlWhere(sql,values,sub,field=None,mode=None):
             if isinstance(S_AND,dict):
                 field=next(iter(S_AND))
                 S_AND=S_AND[field]
-            sql,m=SqlWhere(sql,values,S_AND,field=field,mode='AND')
+            sql,m=SqlWhere(sql,values,S_AND,field=field,mode='AND',q_mark=q_mark)
         elif S_OR:
             if isinstance(S_OR,dict):
                 field=next(iter(S_OR))
                 S_OR=S_OR[field]
-            sql,m=SqlWhere(sql,values,S_OR,field=field,mode='OR')
+            sql,m=SqlWhere(sql,values,S_OR,field=field,mode='OR',q_mark=q_mark)
         else:
             field=next(iter(sub))
             if not sub[field]:
@@ -651,9 +545,9 @@ def SqlWhere(sql,values,sub,field=None,mode=None):
                 if isinstance(sub[field],dict):
                     #AND/OR : {<field>:{'or/and':({<oper>:<find data>},...)}}
                     if 'and' in sub[field]:
-                        sql,m=SqlWhere(sql,values,sub[field],field=field,mode='AND')
+                        sql,m=SqlWhere(sql,values,sub[field],field=field,mode='AND',q_mark=q_mark)
                     elif isinstance(sub[field],dict) and 'or' in sub[field]:
-                        sql,m=SqlWhere(sql,values,sub[field],field=field,mode='OR')
+                        sql,m=SqlWhere(sql,values,sub[field],field=field,mode='OR',q_mark=q_mark)
                     else:
                         #Single data: {<field>:{<oper>:<find data>}}
                         sql,m=dict_sql(sql,field,sub[field])
@@ -671,7 +565,7 @@ def SqlWhere(sql,values,sub,field=None,mode=None):
         for mods in sub:
             if field is None:
                 if sub_symbol : sql=sql+' {}'.format(mode)
-                sql,m=SqlWhere(sql,values,mods,field=field)
+                sql,m=SqlWhere(sql,values,mods,field=field,q_mark=q_mark)
                 sub_symbol=True
             else:
                 sql,m=dict_sql(sql,field,mods,symbol,mode)
@@ -815,9 +709,12 @@ def GetTablenames(**db):
 #############################################################################
 # New design (2024)
 #############################################################################
+#Currelty it works with SQLite3 
+# To be continue to postgresql
 def MkTableInDB(sql=None,**info):
-    module=info.get('module')
-    if module in ['psql','postgres']:
+    #module=info.get('module')
+    #if module in ['psql','postgres']:
+    if IsPSQL(**NewOpts(info)):
         #code here
         pass
     else:
@@ -841,6 +738,8 @@ def MkTableInDB(sql=None,**info):
         return True,'created sql'
     return False,'unknown module'
 
+#Currelty it works with SQLite3 
+# To be continue to postgresql
 def GetTableSeq(src_db,table_name=None,create=False):
     #Get sequence number of tables in db file
     if not create and not os.path.isfile(src_db):
@@ -861,6 +760,8 @@ def GetTableSeq(src_db,table_name=None,create=False):
         tables_name.append(t['name'])
     return src_conn,tables,tables_name
 
+#Currelty it works with SQLite3 
+# To be continue to postgresql
 def AddTableSeq(dest_db,tables,tables_name,idx=None):
     #copy source(tables) to dest_db
     # idx: None: copy last number, int: copy information but change sequence number to idx
@@ -884,6 +785,8 @@ def AddTableSeq(dest_db,tables,tables_name,idx=None):
     dest_conn.commit()
     dest_conn.close()
 
+#Currelty it works with SQLite3 
+# To be continue to postgresql
 def UpdateTableSeq(src_db,idx,src_table=None):
     src_conn,tables,tables_name=GetTableSeq(src_db,table_name=src_table)
     if src_conn is False: return src_conn,tables
@@ -922,6 +825,8 @@ def UpdateTableSeq(src_db,idx,src_table=None):
     src_conn.commit()
     src_conn.close()
 
+#Currelty it works with SQLite3 
+# To be continue to postgresql
 def CloneDBTable(src_db,source_table=None,dest_table=None,dest_db=None,seq=0,copy_data=False):
     if not os.path.isfile(src_db):
         return False,'Source DB file({}) not found'.format(src_db)
@@ -1030,6 +935,8 @@ def CloneDBTable(src_db,source_table=None,dest_table=None,dest_db=None,seq=0,cop
         CloneDBTableData(src_db,dest_db,source_table,dest_table,clone=True)
     return True,'ok'
 
+#Currelty it works with SQLite3 
+# To be continue to postgresql
 def CloneDBTableData(src_db,dest_db,source_table=None,dest_table=None,stack=False,clone=True,ignore_fields=[]):
     #src_db: source DB FIle
     #source_table: None: Copy all table in the src_db, <name>: copy only the <name>
@@ -1144,6 +1051,7 @@ def CloneDBTableData(src_db,dest_db,source_table=None,dest_table=None,stack=Fals
         src_conn.close()
 
 def TableIDRangeInDBFile(table_name,conn=None,db_file=None):
+    #SQLite3 function
     close_conn=False
     if not conn:
         #if not conn then open db_file
@@ -1167,79 +1075,95 @@ def TableIDRangeInDBFile(table_name,conn=None,db_file=None):
     else:
         return start[0],end[0]
 
-def Conn(db_file,enc_key=None):
-    #Import('sqlite3')
-    if not isinstance(db_file,str) or not os.path.isfile(db_file):
-        return False
-
-    #Encripted DB
-    if enc_key:
-        if enc:
-            conn=sqlcipher.connect(db_file)
-            conn.execute(f'pragma key="{enc_key}"')
-            conn.row_factory=sqlcipher.Row
-        else:
-            print('Please install sqlcipher(yum install sqlcipher) and pysqlcipher3(pip3 install pysqlcipher3)')
+def Conn(**opts):
+    if IsPSQL(**NewOpts(opts)):
+        opts['module']='psql'
+        timeout=opts.get('timeout',2)
+        port=opts.get('port',5432)
+        user=opts.get('user')
+        passwd=opts.get('passwd',opts.get('password'))
+        ips=opts.get('ip',opts.get('host'))
+        db=opts.get('db',opts.get('database'))
+        if not user:
+            print('Missing user name')
             return False
+        if not passwd:
+            print('Missing password')
+            return False
+        if not db:
+            print('Missing database')
+            return False
+        if isinstance(ips,str): ips=ips.split(',')
+        ips=[ip for ip in ips if IpV4(ip)]
+        if not isinstance(ips,list) or not ips:
+            print('Not found Postgresql host IP')
+            return False
+        for ip in ips:
+            try:
+                return psycopg2.connect(database = db, user = user, password = passwd, host = ip, port = port,connect_timeout=timeout)
+            except psycopg2.OperationalError as e:
+                print(f'Host {ip} has an issue : {e}')
     else:
-        conn=sqlite3.connect(db_file)
-        conn.row_factory=sqlite3.Row
-    return conn
-#    return sqlite3.connect(db_file)   # existing DB file
+        #Import('sqlite3')
+        db_file=opts.get('db_file')
+        enc_key=opts.get('enc_key')
+        if not isinstance(db_file,str) or not os.path.isfile(db_file):
+            return False
 
-def GetCursor(con,row_format=list,module='sqlite3',cmd=None):
+        #Encripted DB
+        if enc_key:
+            if enc:
+                conn=sqlcipher.connect(db_file)
+                conn.execute(f'pragma key="{enc_key}"')
+                conn.row_factory=sqlcipher.Row
+            else:
+                print('Please install sqlcipher(yum install sqlcipher) and pysqlcipher3(pip3 install pysqlcipher3)')
+                return False
+        else:
+            conn=sqlite3.connect(db_file)
+            conn.row_factory=sqlite3.Row
+        return conn
+
+def GetCursor(con,row_format=list,module=None,cmd=None):
     #ROW Format convert if need dict
     #return Cursor()
-    if module in ['psql','postgras']:
+    #if module in ['psql','postgras'] or (not module and isinstance(con,psycopg2.extensions.connection)):
+    if IsPSQL(conn=con,module=module):
         if row_format in [dict,'dict']:
             cur = con.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         else:
             cur = con.cursor()
+        return cur
     else:
         cur=con.cursor()
-
         if cmd in ['delete','update','insert']: return cur 
         if row_format in [dict,'dict']:
             cur.row_factory = lambda c,r:dict([(col[0], r[idx]) for idx, col in enumerate(cur.description)])
         else:
             cur.row_factory=None
-    return cur
+        return cur
 
-def NewSqlExe(sql,db_file=None,value=None,row=list,int_primary_in_table=False,table_name=None,**db):
-    Import('sqlite3')
+def NewSqlExe(sql,value=None,row=list,int_primary_in_table=False,get_single=None,table_name=None,**db):
     if not isinstance(sql,str): return False, f'SQL({sql}) required String'
     sql_cmd=sql.lower().split()[0]
-    sql_qc=sql.count('?')
+    if '?' in sql:
+        sql_qc=sql.count('?')
+    elif '%s' in sql:
+        sql_qc=sql.count('%s')
     out=[]
-    if not db_file: db_file=db.get('db_file')
-    if isinstance(db_file,str): db_file=db_file.split(',')
-    elif isinstance(db_file,tuple): db_file=list(db_file)
-    if not isinstance(db_file,list):
-        return False,f'missing db_file parameter'
-    elif not os.path.isfile(db_file[0]):
-        return False,f'First DB File({db_file[0]}) not found'
-    single=False
-    if sql_cmd == 'insert' and len(db_file) > 1: # insert data at new db file
-        if os.path.isfile(db_file[0]) and not os.path.isfile(db_file[-1]):
-            ok,msg=CloneDBTable(db_file[0],dest_db=db_file[-1],seq=None,copy_data=False)
-            if not ok: return ok,msg
-        db_file=[db_file[-1]]
-    mx_db=len(db_file)
-    con=None
-    for i in range(0,mx_db):
-        if not isinstance(db_file[i],str) or not os.path.isfile(db_file[i]): continue
-        if isinstance(int_primary_in_table,int) and table_name:
-            single=True
-            con=Conn(db_file[i],enc_key=db.get('enc_key'))
-            sr,er=TableIDRangeInDBFile(table_name,con)
-            if isinstance(sr,bool) or int_primary_in_table < sr or er < int_primary_in_table:
-                con.close()
-                continue
-        else:
-            con=Conn(db_file[i],enc_key=db.get('enc_key'))
+    #module=db.get('module')
+    #print('>>>module:',module)
+    #if not isinstance(module,str): module='sqlite3'
+    #module=module.lower()
+    #if IsPSQL(conn=con,module=module):
+    #if module in ['psql','postgresql']:
+    if IsPSQL(**NewOpts(db)):
+        con=Conn(**db)
+        if not con:
+            return False,'can not connect to DB'
         dcur=GetCursor(con,row)
         try:
-            if value and '?' in sql:
+            if value and '?' in sql or '%s' in sql:
                 if isinstance(value,(tuple,list)):
                     if sql_qc == len(value):
                         dcur.execute(sql,tuple(value))
@@ -1262,7 +1186,7 @@ def NewSqlExe(sql,db_file=None,value=None,row=list,int_primary_in_table=False,ta
         if sql_cmd in ['delete','update','insert','create']:
             con.commit()
         else:
-            if single:
+            if get_single:
                 o=dcur.fetchone()
                 out.append(o)
             else:
@@ -1270,6 +1194,68 @@ def NewSqlExe(sql,db_file=None,value=None,row=list,int_primary_in_table=False,ta
                 for i in o:
                     out.append(i)
         con.close()
+    else: # Sqlite3
+        if not db_file: db_file=db.get('db_file')
+        if isinstance(db_file,str): db_file=db_file.split(',')
+        elif isinstance(db_file,tuple): db_file=list(db_file)
+        if not isinstance(db_file,list):
+            return False,f'missing db_file parameter'
+        elif not os.path.isfile(db_file[0]):
+            return False,f'First DB File({db_file[0]}) not found'
+        single=False
+        if sql_cmd == 'insert' and len(db_file) > 1: # insert data at new db file
+            if os.path.isfile(db_file[0]) and not os.path.isfile(db_file[-1]):
+                ok,msg=CloneDBTable(db_file[0],dest_db=db_file[-1],seq=None,copy_data=False)
+                if not ok: return ok,msg
+            db_file=[db_file[-1]]
+        mx_db=len(db_file)
+        con=None
+        for i in range(0,mx_db):
+            if not isinstance(db_file[i],str) or not os.path.isfile(db_file[i]): continue
+            if isinstance(int_primary_in_table,int) and table_name:
+                single=True
+                con=Conn(**db)
+                if not con: continue
+                sr,er=TableIDRangeInDBFile(table_name,con)
+                if isinstance(sr,bool) or int_primary_in_table < sr or er < int_primary_in_table:
+                    con.close()
+                    continue
+            else:
+                con=Conn(**db)
+                if not con: continue
+            dcur=GetCursor(con,row)
+            try:
+                if value and '?' in sql:
+                    if isinstance(value,(tuple,list)):
+                        if sql_qc == len(value):
+                            dcur.execute(sql,tuple(value))
+                        else:
+                            return False,f'mismatched between data({len(value)}) and parameters({sql_qc}) number1'
+                            #return False,f'mismatched between data({value}) and parameters({sql}) number1'
+                    elif sql_qc == 1:
+                        dcur.execute(sql,(value,))
+                    else:
+                        return False,f'mismatched between data({len(value)}) and parameters({sql_qc}) number2'
+                        #return False,f'mismatched between data({value}) and parameters({sql}) number2'
+                else:
+                    dcur.execute(sql)
+            except:
+                con.close()
+                e=sys.exc_info()[0]
+                er=traceback.format_exc()
+                print('ERR:{}\n{}'.format(e,er))
+                return False,'{}\n{}'.format(e,er)
+            if sql_cmd in ['delete','update','insert','create']:
+                con.commit()
+            else:
+                if single:
+                    o=dcur.fetchone()
+                    out.append(o)
+                else:
+                    o=dcur.fetchall()
+                    for i in o:
+                        out.append(i)
+            con.close()
     if con:
         return out,'ok'
     else:
@@ -1291,6 +1277,7 @@ def NewSql(sql=None,tablename=None,find=[],out_fields=[],order=[],group=[],row=l
     # Filter out for wrong field name
     value=mk_list(value)
     condition_value=[]
+    is_psql=IsPSQL(**db)
     if not sql and tablename:
         if filterout:
             db_file=db.get('db_file')
@@ -1309,7 +1296,7 @@ def NewSql(sql=None,tablename=None,find=[],out_fields=[],order=[],group=[],row=l
         if isinstance(find,(list,tuple)) and find:
             sql=sql+' WHERE'
             for r in find:
-                sql,tmp=SqlWhere(sql,condition_value,r)
+                sql,tmp=SqlWhere(sql,condition_value,r,q_mark='%s' if is_psql else '?')
         if isinstance(group,(list,tuple)) and group:
             sql=sql+' GROUP BY '+','.join(group)
         if isinstance(order,(list,tuple)) and order:
@@ -1325,9 +1312,11 @@ def NewSql(sql=None,tablename=None,find=[],out_fields=[],order=[],group=[],row=l
     #else:
     datas=value+condition_value
     if isinstance(idx,int): #primary key condition
-        return NewSqlExe(sql,db_file,datas,row,int_primary_in_table=idx,table_name=tablename)
+        #return NewSqlExe(sql,db_file,datas,row,int_primary_in_table=idx,table_name=tablename)
+        return NewSqlExe(sql,value=datas,row=row,int_primary_in_table=idx,table_name=tablename,**NewOpts(db,db_file=db_file))
     else: #other condition
-        out,msg=NewSqlExe(sql,db_file,datas,row)
+        out,msg=NewSqlExe(sql,value=datas,row=row,**NewOpts(db,db_file=db_file))
+        #out,msg=NewSqlExe(sql,db_file,datas,row)
         if isinstance(out,bool): return out,msg
     return out,'ok'
 
