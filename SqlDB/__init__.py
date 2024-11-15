@@ -4,7 +4,7 @@ import time
 import traceback
 from kmport import *
 Import('sqlite3')
-Import('psycopg2')
+Import('psycopg2',install_name='psycopg2-binary')
 Import('psycopg2.extras')
 
 try:
@@ -138,12 +138,17 @@ def SmartSqlMkData(table_name,key,data,decode=None,correct_count=False,**db_info
             data[i]=Bytes(data[i])
     return tuple(data),'ok'
 
-def SqlExec(sql,data=[],row=list,mode='fetchall',encode=None,raw=False,**db):
-    return NewSqlExe(sql,value=data,row=row,table_name=None,**db)
+#def SqlExec(sql,data=[],row=list,mode='fetchall',encode=None,raw=False,**db):
+def SqlExec(sql,data=[],encode=None,raw=False,**db):
+    if 'row' in db: row_format=db.pop('row')
+    elif 'row_format' in db: row_format=db.pop('row_format')
+    else: row_format=list
+    return NewSqlExe(sql,value=data,row_format=row_format,table_name=None,**db)
 
 def SqlAutoIdx(table_name,index='id',**db):
-    #data,msg=SqlExec('''select max({}) from {};'''.format(index,table_name),row=list,**db)
-    data,msg=NewSqlExe('''select max({}) from {};'''.format(index,table_name),row=list,**db)
+    if 'row' in db: row_format=db.pop('row')
+    elif 'row_format' in db: row_format=db.pop('row_format')
+    data,msg=NewSqlExe('''select max({}) from {};'''.format(index,table_name),row_format=list,**db)
     if data is False:
         return False,msg
     if isinstance(data,list) and data:
@@ -151,13 +156,13 @@ def SqlAutoIdx(table_name,index='id',**db):
     return True,1
 
 def SqlTableInfo(with_field=False,**db):
-    #if db.get('module') in ['psql','postgresql']:
+    if 'row' in db: row_format=db.pop('row')
+    elif 'row_format' in db: row_format=db.pop('row_format')
+
     if IsPSQL(**NewOpts(db)):
-        #data,msg=SqlExec('''select table_name from information_schema.tables where table_schema='public' and table_type='BASE TABLE';''',row=list,**db)
-        data,msg=NewSqlExe('''select table_name from information_schema.tables where table_schema='public' and table_type='BASE TABLE';''',row=list,**db)
+        data,msg=NewSqlExe('''select table_name from information_schema.tables where table_schema='public' and table_type='BASE TABLE';''',row_format=list,**db)
     else:
-        #data,msg=SqlExec('''select name from sqlite_master where type='table';''',row=list,**db)
-        data,msg=NewSqlExe('''select name from sqlite_master where type='table';''',row=list,**db)
+        data,msg=NewSqlExe('''select name from sqlite_master where type='table';''',row_format=list,**db)
     if data:
         if with_field:
             rt={}
@@ -169,15 +174,32 @@ def SqlTableInfo(with_field=False,**db):
             return [tt[0] for tt in data if tt]
     return msg
 
+def GetPrimaryKeyName(table_name,**db):
+    if 'row' in db: row_format=db.pop('row')
+    elif 'row_format' in db: row_format=db.pop('row_format')
+
+    if IsPSQL(**NewOpts(db)):
+        sql='''SELECT column_name FROM information_schema.columns WHERE table_catalog='{}' and table_name = '{}';'''.format(db.get('db'),table_name)
+        data,msg=NewSqlExe(sql,row_format=list,**db)
+        if isinstance(data,bool): return data,msg
+        return data[0][0]
+    else:
+        data,msg=NewSqlExe('''pragma table_info('{}')'''.format(table_name),row_format=list,**db)
+        if isinstance(data,bool): return data,msg
+        for ii in data:
+            if ii[5] == 1: return ii[1]
+
 def SqlFieldInfo(table_name,field_mode='name',out=dict,**db):
+    if 'row' in db: row_format=db.pop('row')
+    elif 'row_format' in db: row_format=db.pop('row_format')
+
     rt={}
     if not isinstance(table_name,str): return rt
-    #if db.get('module') in ['psql','postgresql']:
     if IsPSQL(**NewOpts(db)):
+        if not db.get('db'): return rt
         #data_type similar but simple word is udt_name
         sql='''SELECT ordinal_position,column_name,udt_name,is_nullable,column_default,character_maximum_length FROM information_schema.columns WHERE table_catalog='{}' and table_name = '{}';'''.format(db.get('db'),table_name)
-        #data,msg=SqlExec(sql,row=list,**db)
-        data,msg=NewSqlExe(sql,row=list,**db)
+        data,msg=NewSqlExe(sql,row_format=list,**db)
         if isinstance(data,bool): return data,msg
         if 'primary' in [out,field_mode]:
             return data[0][1]
@@ -193,9 +215,8 @@ def SqlFieldInfo(table_name,field_mode='name',out=dict,**db):
                     rt[item[1]]={'idx':item[0],'type':item[2],'notnull':notnull,'dflt_value':item[4],'primary':pk,'len':item[5]}
                 else:
                     rt[item[0]]={'name':item[1],'type':item[2],'notnull':notnull,'dflt_value':item[4],'primary':pk,'len':item[5]}
-    else:
-        #data,msg=SqlExec('''pragma table_info('{}')'''.format(table_name),row=list,**db)
-        data,msg=NewSqlExe('''pragma table_info('{}')'''.format(table_name),row=list,**db)
+    else: #Sqlite3
+        data,msg=NewSqlExe('''pragma table_info('{}')'''.format(table_name),row_format=list,**db)
         #cid:name:type:notnull:dflt_value:pk
         #Int(Column ID):String(Column name):String(Column Type):bool(Has a not Null constraint):object(default Value):bool(Is part of the Primary Key)
         if isinstance(data,bool): return data,msg
@@ -226,8 +247,11 @@ def SqlFieldInfo(table_name,field_mode='name',out=dict,**db):
     return rt
 
 
-def SqlPut(tablename,rows,fields=[],decode=None,check=False,dbg=False,**db):
+def SqlPut(tablename=None,rows=None,fields=[],decode=None,check=False,dbg=False,sql=None,**db):
+    if 'row' in db: row_format=db.pop('row')
+    elif 'row_format' in db: row_format=db.pop('row_format')
     if 'mode' in db: db.pop('mode')
+
     is_psql=IsPSQL(**db)
     def MkSql(tablename,keys):
         fields=','.join(keys)
@@ -254,6 +278,9 @@ def SqlPut(tablename,rows,fields=[],decode=None,check=False,dbg=False,**db):
             return MkSql(tablename,keys), SmartSqlMkData(tablename,keys,row,decode,**db)[0]
         return None,None
 
+    if sql:
+        return NewSqlExe(sql,value=rows,row_format=list,**db)
+
     field_info=None
     if check: field_info=SqlFieldInfo(tablename,mode='name',out=dict,**db)
 
@@ -267,8 +294,7 @@ def SqlPut(tablename,rows,fields=[],decode=None,check=False,dbg=False,**db):
                     print('sql={}, values={}'.format(sql,values))
                     return True,'sql={}, values={}'.format(sql,values)
                 else:
-                    #tmp,msg=SqlExec(sql,values,mode='commit',**db)
-                    tmp,msg=NewSqlExe(sql,value=values,**db)
+                    tmp,msg=NewSqlExe(sql,value=values,row_format=list,**db)
                     return [tmp],msg
             return False,values
         rows_idx=[]
@@ -284,19 +310,20 @@ def SqlPut(tablename,rows,fields=[],decode=None,check=False,dbg=False,**db):
             if dbg:
                 print('sql={}, values={}'.format(sql,values))
             else:
-                #tmp,msg=SqlExec(sql,values,mode='commit',**db)
-                tmp,msg=NewSqlExe(sql,value=values,**db)
+                tmp,msg=NewSqlExe(sql,value=values,row_format=list,**db)
                 rows_idx.append(tmp)
         return rows_idx,msg
     return False,None
 
-def SqlUpdate(tablename,rows,fields=[],decode=None,dbg=False,**db):
+def SqlUpdate(tablename=None,rows=None,fields=[],decode=None,dbg=False,sql=None,**db):
     '''
     rows=[<data>,...] or [{<field name>:<data>}] : Update data 
     fields=[<field name>,...] for rows with [<data>,...]
     condition=[{<field name>:<data>}] : Update data find condition
     '''
     condition=db.get('condition',db.get('find',[]))
+    if 'row' in db: row_format=db.pop('row')
+    elif 'row_format' in db: row_format=db.pop('row_format')
     if 'mode' in db: db.pop('mode')
     is_psql=IsPSQL(**db)
     #UPDATE <Table> SET <Field> = <Val> WHERE <Field>='<find>'
@@ -332,13 +359,9 @@ def SqlUpdate(tablename,rows,fields=[],decode=None,dbg=False,**db):
         #return sql,SqlMkData(row,decode)
         return sql, SmartSqlMkData(tablename,keys,row,decode,**db)[0]
 
-#    if isinstance(condition,str):
-#        if '=' in condition:
-#            cc_a=condition.split()
-#            if len(cc_a)==3:
-#                condition=[{cc_a[0]:{cc_a[1]:cc_a[2]}}]
-#    elif isinstance(condition,tuple) and len(condition)==2:
-#        condition=[{condition[0]:{'=':condition[-1]}}]
+    if sql:
+        return NewSqlExe(sql,value=rows,row_format=list,**db)
+
     condition=SqlSimpleCondition(condition)
     if isinstance(rows,dict):
         sql,values=single_dict_row(tablename,rows,decode=decode,condition=condition)
@@ -347,8 +370,7 @@ def SqlUpdate(tablename,rows,fields=[],decode=None,dbg=False,**db):
                 print('sql={}, values={}'.format(sql,values))
                 return True,None
             else:
-                #tmp,conn=SqlExec(sql,values,mode='commit',**db)
-                tmp,conn=NewSqlExe(sql,value=values,**db)
+                tmp,conn=NewSqlExe(sql,value=values,row_format=list,**db)
                 return tmp,conn
         return False,'SQL and Value is not matched'
     elif isinstance(rows,(list,tuple)):
@@ -359,8 +381,7 @@ def SqlUpdate(tablename,rows,fields=[],decode=None,dbg=False,**db):
                     print('sql={}, values={}'.format(sql,values))
                     return True,'sql={}, values={}'.format(sql,values)
                 else:
-                    #tmp,conn=SqlExec(sql,values,mode='commit',**db)
-                    tmp,conn=NewSqlExe(sql,value=values,**db)
+                    tmp,conn=NewSqlExe(sql,value=values,row_format=list,**db)
                     return tmp,conn
             return False,values
         tmp=False
@@ -376,8 +397,7 @@ def SqlUpdate(tablename,rows,fields=[],decode=None,dbg=False,**db):
                     print('sql={}, values={}'.format(sql,values))
                     tmp=True
                 else:
-                    #tmp,conn=SqlExec(sql,values,mode='commit',**db)
-                    tmp,conn=NewSqlExe(sql,value=values,**db)
+                    tmp,conn=NewSqlExe(sql,value=values,row_format=list,**db)
         return True,conn
     return False,values
 
@@ -402,50 +422,6 @@ def SqlFilterFields(table_name,check_field_names=[],**db):
 
 def SqlGet(sql=None,tablename=None,find=[],out_fields=[],order=[],group=[],row=list,dbg=False,filterout=True,mode='all',**db):
     return NewSql(sql=sql,tablename=tablename,find=find,out_fields=out_fields,order=order,group=group,row=row,filterout=filterout,mode=mode,dbg=dbg,**db)
-#def SqlGet(sql=None,tablename=None,find=[],out_fields=[],order=[],group=[],row=list,dbg=False,filterout=True,mode='all',**db):
-#    '''
-#    sql=<SQL Format String>, If None then make from info, rows, out_fiels
-#    info=[<table name>,<SQL Command>]
-#    find=[{<field name>:<data>}] for info or [<data>,...] for sql
-#    out_fields=[<fieldname>,...] : *: get all fields
-#    '''
-#    if 'mode' in db: db.pop('mode')
-#    # Filter out for wrong field name
-#    if filterout:
-#         out_fields=SqlFilterFields(tablename,out_fields,**db)
-#         if isinstance(out_fields,tuple): return out_fields
-# 
-#    values=[]
-#    if isinstance(sql,str):
-#        #if '?' in sql and isinstance(find,(list,tuple)) and len([ i for i in sql if i == '?']) == len(find):
-#        if find and isinstance(find,(list,tuple)):
-#            if '?' in sql and len([ i for i in sql if i == '?']) == len(find):
-#                data,msg=SqlExec(sql,tuple(find),row=row,mode=mode,**db)
-#        else:
-#            data,msg=SqlExec(sql,row=row,mode=mode,**db)
-#        if isinstance(data,bool): return data,msg
-#        return data,msg
-#    elif tablename:
-#        if out_fields:
-#            out_field=','.join(out_fields)
-#        else:
-#            out_field='*'
-#        sql='SELECT {} FROM {}'.format(out_field,tablename)
-#        if isinstance(find,(list,tuple)) and find:
-#            sql=sql+' WHERE'
-#            for r in find:
-#                sql,tmp=SqlWhere(sql,values,r)
-#        if isinstance(group,(list,tuple)) and group:
-#            sql=sql+' GROUP BY '+','.join(group)
-#        if isinstance(order,(list,tuple)) and order:
-#            sql=sql+' ORDER BY '+','.join(order)
-#    if dbg:
-#        print('sql={}, data={}'.format(sql,values))
-#        return 'sql={}, data={}'.format(sql,values)
-#    try:
-#        return SqlExec(sql,tuple(values),row=row,mode=mode,**db)
-#    except Exception as e:
-#        return False,'{}'.format(e)
 
 
 def SqlDel(sql=None,tablename=None,dbg=False,**db):
@@ -453,27 +429,29 @@ def SqlDel(sql=None,tablename=None,dbg=False,**db):
     sql=<SQL Format String>, If None then make from info, rows, out_fiels
     find=[{<field name>:<data>}] for info or [<data>,...] for sql
     '''
+    if 'row' in db: row_format=db.pop('row')
+    elif 'row_format' in db: row_format=db.pop('row_format')
+    if 'mode' in db: db.pop('mode')
     condition=db.get('condition',db.get('find',[]))
     condition=SqlSimpleCondition(condition)
-    if 'mode' in db: db.pop('mode')
     is_psql=IsPSQL(**db)
     values=[]
+    q_mark='%s' if is_psql else '?'
     if isinstance(sql,str):
-        if '?' in sql and isinstance(find,(list,tuple)) and len([ i for i in sql if i == '?']) == len(find):
-            values=find
+        if q_mark in sql and isinstance(condition,(list,tuple)) and len([ i for i in sql if i == q_mark]) == len(condition):
+            values=condition
     elif tablename:
         sql='DELETE FROM {}'.format(tablename)
         if isinstance(condition,(list,tuple)):
             sql=sql+' WHERE'
             for r in condition:
-                sql,tmp=SqlWhere(sql,values,r,q_mark='%s' if is_psql else '?')
+                sql,tmp=SqlWhere(sql,values,r,q_mark=q_mark)
     if dbg:
         print('sql={}, data={}'.format(sql,values))
         return 'sql={}, data={}'.format(sql,values)
     try:
         print('DL: sql={}, data={}'.format(sql,values))
-        #return SqlExec(sql,tuple(values),mode='commit',**db)
-        return NewSqlExe(sql,value=tuple(values),**db)
+        return NewSqlExe(sql,value=tuple(values),row_format=list,**db)
     except Exception as e:
         return False,'{}'.format(e)
 
@@ -575,6 +553,9 @@ def SqlWhere(sql,values,sub,field=None,mode=None,q_mark='?'):
     return sql,values
 
 def FTS_init(table_name,fields,key='id',version=3,**db):
+    if 'row' in db: row_format=db.pop('row')
+    elif 'row_format' in db: row_format=db.pop('row_format')
+
     istable=IsTable('{}_fts'.format(table_name),**db)
     if not istable:
         if isinstance(fields,str): fields=fields.split(',')
@@ -582,13 +563,11 @@ def FTS_init(table_name,fields,key='id',version=3,**db):
         if isinstance(fields,list): fields=','.join(fields)
 
         #create
-        #data,msg=SqlExec('''create virtual table {0}_fts using fts{3}({2},{1},content='{0}');'''.format(table_name,fields,key,version),mode='commit',**db)
-        data,msg=NewSqlExe('''create virtual table {0}_fts using fts{3}({2},{1},content='{0}');'''.format(table_name,fields,key,version),**db)
+        data,msg=NewSqlExe('''create virtual table {0}_fts using fts{3}({2},{1},content='{0}');'''.format(table_name,fields,key,version),row_format=list,**db)
         if data is False:
             return data,msg
         #initialize(copy data)
-        #data,msg=SqlExec('''insert into {0}_fts ({2},{1}) select {2},{1} from {0};'''.format(table_name,fields,key),mode='commit',**db)
-        data,msg=NewSqlExe('''insert into {0}_fts ({2},{1}) select {2},{1} from {0};'''.format(table_name,fields,key),**db)
+        data,msg=NewSqlExe('''insert into {0}_fts ({2},{1}) select {2},{1} from {0};'''.format(table_name,fields,key),row_format=list,**db)
         #automation
         new_fields=[]
         for i in fields.split(','):
@@ -627,11 +606,13 @@ INSERT INTO {0}_fts({4},{1}) values ('delete',old.{4},{3});
 INSERT INTO {0}_fts({4},{1}) values (new.{4},{2});
 END;
 '''.format(table_name,fields,','.join(new_fields),','.join(old_fields),key)
-        #data,msg=SqlExec(sql,mode='commit',multi=True,**db)
-        data,msg=NewSqlExe(sql,**db)
+        data,msg=NewSqlExe(sql,row_format=list,**db)
         return data,msg
 
-def FTS(table_name,search=None,out_fields=None,group_field=None,search_field=None,key='id',row=dict,order=None,version=3,**db):
+def FTS(table_name,search=None,out_fields=None,group_field=None,search_field=None,key='id',order=None,version=3,**db):
+    if 'row' in db: row_format=db.pop('row')
+    elif 'row_format' in db: row_format=db.pop('row_format')
+    else: row_format=list
     group_field_and_rule=False
     def make_group_field(group_field,avail_fields):
         group_field_a=group_field.split(':')
@@ -686,23 +667,23 @@ def FTS(table_name,search=None,out_fields=None,group_field=None,search_field=Non
     if search_sql: search_sql=''' where {} '''.format(search_sql)
     # select id,subject,title from memo_fts where subject='python' and memo_fts match 'flaskco*';
     if order:
-        #data,msg=SqlExec('''select {2} from {0} where {3} in (select {3} from {0}_fts {1}) order by {4} ;'''.format(table_name,search_sql,out_fields,key,order),row=row,**db)
-        data,msg=NewSqlExe('''select {2} from {0} where {3} in (select {3} from {0}_fts {1}) order by {4} ;'''.format(table_name,search_sql,out_fields,key,order),row=row,**db)
+        data,msg=NewSqlExe('''select {2} from {0} where {3} in (select {3} from {0}_fts {1}) order by {4} ;'''.format(table_name,search_sql,out_fields,key,order),row_format=row_format,**db)
     else:
-        #data,msg=SqlExec('''select {2} from {0} where {3} in (select {3} from {0}_fts {1});'''.format(table_name,search_sql,out_fields,key,search_field),row=row,**db)
-        data,msg=NewSqlExe('''select {2} from {0} where {3} in (select {3} from {0}_fts {1});'''.format(table_name,search_sql,out_fields,key,search_field),row=row,**db)
+        data,msg=NewSqlExe('''select {2} from {0} where {3} in (select {3} from {0}_fts {1});'''.format(table_name,search_sql,out_fields,key,search_field),row_format=row_format,**db)
     return data,msg
 
 def IsTable(table_name,**db):
-    #data,msg=SqlExec('''select name from sqlite_master where type='table' and name='{}';'''.format(table_name),row=dict,**db)
-    data,msg=NewSqlExe('''select name from sqlite_master where type='table' and name='{}';'''.format(table_name),row=dict,**db)
+    if 'row' in db: row_format=db.pop('row')
+    elif 'row_format' in db: row_format=db.pop('row_format')
+    data,msg=NewSqlExe('''select name from sqlite_master where type='table' and name='{}';'''.format(table_name),row_format=dict,**db)
     if data:
         return True
     return False
 
 def GetTablenames(**db):
-    #data,msg=SqlExec('''select name from sqlite_master where type='table' and name!='sqlite_sequence';''',row=dict,**db)
-    data,msg=NewSqlExe('''select name from sqlite_master where type='table' and name!='sqlite_sequence';''',row=dict,**db)
+    if 'row' in db: row_format=db.pop('row')
+    elif 'row_format' in db: row_format=db.pop('row_format')
+    data,msg=NewSqlExe('''select name from sqlite_master where type='table' and name!='sqlite_sequence';''',row_format=dict,**db)
     return data,msg
 
 
@@ -712,8 +693,9 @@ def GetTablenames(**db):
 #Currelty it works with SQLite3 
 # To be continue to postgresql
 def MkTableInDB(sql=None,**info):
-    #module=info.get('module')
-    #if module in ['psql','postgres']:
+    if 'row' in db: row_format=db.pop('row')
+    elif 'row_format' in db: row_format=db.pop('row_format')
+
     if IsPSQL(**NewOpts(info)):
         #code here
         pass
@@ -732,7 +714,7 @@ def MkTableInDB(sql=None,**info):
             if isinstance(fields,(list,tuple)):
                 sql=sql+', '.join(fields)
             sql=sql+');'
-        o=NewSqlExe(sql,**info)
+        o=NewSqlExe(sql,row_format=list,**info)
         if isinstance(o,tuple) and not o[0]:
             return o
         return True,'created sql'
@@ -1143,7 +1125,7 @@ def GetCursor(con,row_format=list,module=None,cmd=None):
             cur.row_factory=None
         return cur
 
-def NewSqlExe(sql,value=None,row=list,int_primary_in_table=False,get_single=None,table_name=None,**db):
+def NewSqlExe(sql,value=None,row_format=list,int_primary_in_table=False,get_single=None,table_name=None,**db):
     if not isinstance(sql,str): return False, f'SQL({sql}) required String'
     sql_cmd=sql.lower().split()[0]
     if '?' in sql:
@@ -1151,17 +1133,11 @@ def NewSqlExe(sql,value=None,row=list,int_primary_in_table=False,get_single=None
     elif '%s' in sql:
         sql_qc=sql.count('%s')
     out=[]
-    #module=db.get('module')
-    #print('>>>module:',module)
-    #if not isinstance(module,str): module='sqlite3'
-    #module=module.lower()
-    #if IsPSQL(conn=con,module=module):
-    #if module in ['psql','postgresql']:
     if IsPSQL(**NewOpts(db)):
         con=Conn(**db)
         if not con:
             return False,'can not connect to DB'
-        dcur=GetCursor(con,row)
+        dcur=GetCursor(con,row_format)
         try:
             if value and '?' in sql or '%s' in sql:
                 if isinstance(value,(tuple,list)):
@@ -1195,7 +1171,7 @@ def NewSqlExe(sql,value=None,row=list,int_primary_in_table=False,get_single=None
                     out.append(i)
         con.close()
     else: # Sqlite3
-        if not db_file: db_file=db.get('db_file')
+        db_file=db.get('db_file')
         if isinstance(db_file,str): db_file=db_file.split(',')
         elif isinstance(db_file,tuple): db_file=list(db_file)
         if not isinstance(db_file,list):
@@ -1223,7 +1199,7 @@ def NewSqlExe(sql,value=None,row=list,int_primary_in_table=False,get_single=None
             else:
                 con=Conn(**db)
                 if not con: continue
-            dcur=GetCursor(con,row)
+            dcur=GetCursor(con,row_format)
             try:
                 if value and '?' in sql:
                     if isinstance(value,(tuple,list)):
@@ -1272,8 +1248,10 @@ def mk_list(a,_type=(list,)):
         return [a]
     return a
 
-def NewSql(sql=None,tablename=None,find=[],out_fields=[],order=[],group=[],row=list,filterout=True,mode='all',idx=None,value=[],dbg=False,**db):
-    if 'mode' in db: db.pop('mode')
+def NewSql(sql=None,tablename=None,find=[],out_fields=[],order=[],group=[],filterout=True,idx=None,value=[],dbg=False,**db):
+    if 'row' in db: row_format=db.pop('row')
+    elif 'row_format' in db: row_format=db.pop('row_format')
+    else: row_format=list
     # Filter out for wrong field name
     value=mk_list(value)
     condition_value=[]
@@ -1312,11 +1290,9 @@ def NewSql(sql=None,tablename=None,find=[],out_fields=[],order=[],group=[],row=l
     #else:
     datas=value+condition_value
     if isinstance(idx,int): #primary key condition
-        #return NewSqlExe(sql,db_file,datas,row,int_primary_in_table=idx,table_name=tablename)
-        return NewSqlExe(sql,value=datas,row=row,int_primary_in_table=idx,table_name=tablename,**NewOpts(db,db_file=db_file))
+        return NewSqlExe(sql,value=datas,row_format=row_format,int_primary_in_table=idx,table_name=tablename,**NewOpts(db,db_file=db_file))
     else: #other condition
-        out,msg=NewSqlExe(sql,value=datas,row=row,**NewOpts(db,db_file=db_file))
-        #out,msg=NewSqlExe(sql,db_file,datas,row)
+        out,msg=NewSqlExe(sql,value=datas,row_format=row_format,**NewOpts(db,db_file=db_file))
         if isinstance(out,bool): return out,msg
     return out,'ok'
 
