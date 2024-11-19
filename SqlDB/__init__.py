@@ -732,14 +732,19 @@ def GetTableSeq(src_db,table_name=None,create=False):
     src_conn.row_factory=sqlite3.Row
     scur=src_conn.cursor()
     # Update ID information to expend
-    scur.execute("select * from sqlite_sequence")
-    seq_table=scur.fetchall()
     tables=[]
     tables_name=[]
-    for t in seq_table:
-        if table_name and table_name != t['name']: continue
-        tables.append(t)
-        tables_name.append(t['name'])
+    if table_name:
+        scur.execute(f"select * from sqlite_sequence where name='{table_name}'")
+        seq_table=scur.fetchone()
+        tables.append(seq_table)
+        tables_name.append(table_name)
+    else:
+        scur.execute("select * from sqlite_sequence")
+        seq_table=scur.fetchall()
+        for t in seq_table:
+            tables.append(t)
+            tables_name.append(t['name'])
     return src_conn,tables,tables_name
 
 #Currelty it works with SQLite3 
