@@ -294,8 +294,9 @@ def SqlPut(tablename=None,rows=None,fields=[],decode=None,check=False,dbg=False,
                     print('sql={}, values={}'.format(sql,values))
                     return True,'sql={}, values={}'.format(sql,values)
                 else:
-                    tmp,msg=NewSqlExe(sql,value=values,row_format=list,**db)
-                    return [tmp],msg
+                    #tmp,msg=NewSqlExe(sql,value=values,row_format=list,**db)
+                    #return [tmp],msg
+                    return NewSqlExe(sql,value=values,row_format=list,**db)
             return False,values
         rows_idx=[]
         for row in rows:
@@ -311,7 +312,10 @@ def SqlPut(tablename=None,rows=None,fields=[],decode=None,check=False,dbg=False,
                 print('sql={}, values={}'.format(sql,values))
             else:
                 tmp,msg=NewSqlExe(sql,value=values,row_format=list,**db)
-                rows_idx.append(tmp)
+                if isinstance(tmp,list):
+                    rows_idx.append(tmp[0])
+                else:
+                    rows_idx.append(tmp)
         return rows_idx,msg
     return False,None
 
@@ -385,6 +389,7 @@ def SqlUpdate(tablename=None,rows=None,fields=[],decode=None,dbg=False,sql=None,
                     return tmp,conn
             return False,values
         tmp=False
+        conn=None
         for row in rows:
             sql=None
             values=None
@@ -398,7 +403,7 @@ def SqlUpdate(tablename=None,rows=None,fields=[],decode=None,dbg=False,sql=None,
                     tmp=True
                 else:
                     tmp,conn=NewSqlExe(sql,value=values,row_format=list,**db)
-        return True,conn
+        return tmp,conn
     return False,values
 
 
@@ -1227,7 +1232,10 @@ def NewSqlExe(sql,value=None,row_format=list,int_primary_in_table=False,get_sing
                 print('ERR:{}\n{}'.format(e,er))
                 return False,'{}\n{}'.format(e,er)
             if sql_cmd in ['delete','update','insert','create']:
+                dcur.execute('select last_insert_rowid();')
+                idx=dcur.fetchone()
                 con.commit()
+                out.append(idx[0])
             else:
                 if single:
                     o=dcur.fetchone()
